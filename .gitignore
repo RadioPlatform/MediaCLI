@@ -1,3 +1,6 @@
+media-cli
+media-cli.exe
+# Legacy binary name
 rpmedia-cli
 rpmedia-cli.exe
 dist/

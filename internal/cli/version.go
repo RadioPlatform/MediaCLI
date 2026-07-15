@@ -37,7 +37,7 @@ func runVersion(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	out.PrintInfo(fmt.Sprintf("rpmedia-cli %s", buildinfo.Version))
+	out.PrintInfo(fmt.Sprintf("media-cli %s", buildinfo.Version))
 	out.PrintKV("Commit", buildinfo.Commit)
 	out.PrintKV("Built", buildinfo.BuildDate)
 	out.PrintKV("Go", buildinfo.GoVersion)

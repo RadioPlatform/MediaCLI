@@ -52,9 +52,9 @@ The argument can be a full station UUID, a unique UUID prefix,
 an exact station name, or a unique partial name match.
 
 Examples:
-  rpmedia-cli stations use 2f71a6cb
-  rpmedia-cli stations use "Accra Radio"
-  rpmedia-cli stations use accra`,
+  media-cli stations use 2f71a6cb
+  media-cli stations use "Accra Radio"
+  media-cli stations use accra`,
 		Args: cobra.ExactArgs(1),
 		RunE: runStationsUse,
 	}
@@ -175,7 +175,7 @@ func missingCredentialsError(out *output.Output) error {
 	msg := `No CLI API key is configured.
 
 Run:
-  rpmedia-cli login
+  media-cli login
 
 Generate a key in Account Settings -> CLI API keys.`
 	if out.IsJSON() {
@@ -186,7 +186,7 @@ Generate a key in Account Settings -> CLI API keys.`
 				"message": "No CLI API key is configured.",
 				"details": map[string]interface{}{
 					"suggested_commands": []string{
-						"rpmedia-cli login",
+						"media-cli login",
 					},
 				},
 			},

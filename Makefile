@@ -1,4 +1,4 @@
-BINARY=rpmedia-cli
+BINARY=media-cli
 MODULE=radioplatform-media-ci
 
 .PHONY: build test vet clean

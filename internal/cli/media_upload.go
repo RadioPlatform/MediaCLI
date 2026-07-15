@@ -35,34 +35,34 @@ Accepts files, glob patterns, and directories. Directories are uploaded recursiv
 Nested local directories are flattened into the mapped top-level remote folder.
 
 Upload one file to the default station's media root:
-  rpmedia-cli media upload song.mp3
+  media-cli media upload song.mp3
 
 Upload one file to another station:
-  rpmedia-cli media upload song.mp3 --station "Kumasi FM"
+  media-cli media upload song.mp3 --station "Kumasi FM"
 
 Upload multiple files:
-  rpmedia-cli media upload song1.mp3 song2.mp3
+  media-cli media upload song1.mp3 song2.mp3
 
 Upload files matched by a glob:
-  rpmedia-cli media upload "./tracks/*.mp3"
+  media-cli media upload "./tracks/*.mp3"
 
 Upload a directory recursively:
-  rpmedia-cli media upload ./New-Releases
+  media-cli media upload ./New-Releases
 
 Upload multiple directories into matching remote folders:
-  rpmedia-cli media upload ./Music ./Jingles
+  media-cli media upload ./Music ./Jingles
 
 Upload a directory into a specific remote folder:
-  rpmedia-cli media upload ./Music --folder "High Rotation"
+  media-cli media upload ./Music --folder "High Rotation"
 
 Upload a directory and automatically create its remote folder:
-  rpmedia-cli media upload ./Music --create-folders
+  media-cli media upload ./Music --create-folders
 
 Upload all discovered files as jingles:
-  rpmedia-cli media upload ./Jingles --jingle
+  media-cli media upload ./Jingles --jingle
 
 Non-interactive batch upload:
-  rpmedia-cli media upload ./Music \
+  media-cli media upload ./Music \
     --station "Accra Radio" \
     --create-folders \
     --yes \
@@ -229,7 +229,7 @@ func runMediaUpload(
 						out.PrintOK(fmt.Sprintf("Created folder %q on station %q.", mf, station.Name))
 					} else {
 						msg := fmt.Sprintf("Folder %q does not exist on station %q and was not created.", mf, station.Name)
-						msg += fmt.Sprintf("\n\nRun:\n  rpmedia-cli folders create %q --station %q", mf, station.Name)
+						msg += fmt.Sprintf("\n\nRun:\n  media-cli folders create %q --station %q", mf, station.Name)
 						if out.IsJSON() {
 							out.PrintJSONError(map[string]interface{}{
 								"success": false,
@@ -266,7 +266,7 @@ func runMediaUpload(
 					})
 				} else {
 					out.PrintError(msg)
-					out.PrintStdErr(fmt.Sprintf("\nRun:\n  rpmedia-cli folders create <folder> --station %q", station.Name))
+					out.PrintStdErr(fmt.Sprintf("\nRun:\n  media-cli folders create <folder> --station %q", station.Name))
 					out.PrintStdErr("Or provide --create-folders to create missing folders automatically.")
 				}
 				return fmt.Errorf("missing required folders")

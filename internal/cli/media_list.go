@@ -26,12 +26,12 @@ func NewMediaListCmd() *cobra.Command {
 		Long: `List media files on a radio station.
 
 Examples:
-  rpmedia-cli media list
-  rpmedia-cli media list --station "Accra Radio"
-  rpmedia-cli media list --folder "High Rotation"
-  rpmedia-cli media list --search "afrobeats"
-  rpmedia-cli media list --page 2 --per-page 100
-  rpmedia-cli media list --search "station id" --json`,
+  media-cli media list
+  media-cli media list --station "Accra Radio"
+  media-cli media list --folder "High Rotation"
+  media-cli media list --search "afrobeats"
+  media-cli media list --page 2 --per-page 100
+  media-cli media list --search "station id" --json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMediaList(cmd, stationFlag, folder, search, page, perPage)

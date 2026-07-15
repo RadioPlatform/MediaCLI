@@ -7,7 +7,7 @@ Manage your Radio Platform station media library from the command line.
 ### From source
 
 ```bash
-go install radioplatform-media-ci/cmd/rpmedia-cli@latest
+go install radioplatform-media-ci/cmd/media-cli@latest
 ```
 
 ### From GitHub Releases
@@ -15,38 +15,51 @@ go install radioplatform-media-ci/cmd/rpmedia-cli@latest
 **Linux (amd64):**
 
 ```bash
-tar -xzf rpmedia-cli_Linux_amd64.tar.gz
-sudo install -m 0755 rpmedia-cli /usr/local/bin/rpmedia-cli
+tar -xzf media-cli_Linux_amd64.tar.gz
+sudo install -m 0755 media-cli /usr/local/bin/media-cli
 ```
 
 **Linux (arm64):**
 
 ```bash
-tar -xzf rpmedia-cli_Linux_arm64.tar.gz
-sudo install -m 0755 rpmedia-cli /usr/local/bin/rpmedia-cli
+tar -xzf media-cli_Linux_arm64.tar.gz
+sudo install -m 0755 media-cli /usr/local/bin/media-cli
 ```
 
 **macOS (arm64):**
 
 ```bash
-tar -xzf rpmedia-cli_Darwin_arm64.tar.gz
-sudo install -m 0755 rpmedia-cli /usr/local/bin/rpmedia-cli
+tar -xzf media-cli_Darwin_arm64.tar.gz
+sudo install -m 0755 media-cli /usr/local/bin/media-cli
 ```
 
 **macOS (amd64):**
 
 ```bash
-tar -xzf rpmedia-cli_Darwin_amd64.tar.gz
-sudo install -m 0755 rpmedia-cli /usr/local/bin/rpmedia-cli
+tar -xzf media-cli_Darwin_amd64.tar.gz
+sudo install -m 0755 media-cli /usr/local/bin/media-cli
 ```
 
 Windows is not supported.
 
+### CI and releases
+
+Every branch push and pull request runs formatting checks, `go vet`, race-enabled tests, and a snapshot build. The generated Linux and macOS archives are available from the workflow run for 14 days.
+
+Push a semantic version tag to publish a GitHub Release:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The release contains Linux and macOS binaries for amd64 and arm64, plus `checksums.txt`.
+
 ## Configuration
 
 - The API server URL is hardcoded into the binary and cannot be overridden.
-- CLI credentials are stored in `~/.config/rpmedia-cli/config.json`.
-- If `XDG_CONFIG_HOME` is set, the path becomes `$XDG_CONFIG_HOME/rpmedia-cli/config.json`.
+- For upgrade compatibility, CLI credentials remain stored in `~/.config/rpmedia-cli/config.json`.
+- If `XDG_CONFIG_HOME` is set, the path remains `$XDG_CONFIG_HOME/rpmedia-cli/config.json`.
 - The config directory is created with `0700` permissions.
 - The config file is created with `0600` permissions.
 - The `RADIO_PLATFORM_CLI_KEY` environment variable temporarily overrides the stored key.
@@ -55,7 +68,7 @@ Windows is not supported.
 ## Getting started
 
 ```console
-$ rpmedia-cli login
+$ media-cli login
 Radioplatform Media CLI
 
 Server: https://radio.example.com
@@ -78,19 +91,19 @@ Select the default station:
 List accessible stations:
 
 ```bash
-rpmedia-cli stations list
+media-cli stations list
 ```
 
 Set the default station:
 
 ```bash
-rpmedia-cli stations use "Accra Radio"
+media-cli stations use "Accra Radio"
 ```
 
 Override the station for a single command:
 
 ```bash
-rpmedia-cli media upload song.mp3 --station "Kumasi FM"
+media-cli media upload song.mp3 --station "Kumasi FM"
 ```
 
 **Important rules:**
@@ -105,19 +118,19 @@ rpmedia-cli media upload song.mp3 --station "Kumasi FM"
 List folders:
 
 ```bash
-rpmedia-cli folders list
+media-cli folders list
 ```
 
 Create a folder:
 
 ```bash
-rpmedia-cli folders create "High Rotation"
+media-cli folders create "High Rotation"
 ```
 
 Create a folder on a specific station:
 
 ```bash
-rpmedia-cli folders create "Jingles" --station 2f71a6cb
+media-cli folders create "Jingles" --station 2f71a6cb
 ```
 
 ## Media upload
@@ -125,31 +138,31 @@ rpmedia-cli folders create "Jingles" --station 2f71a6cb
 Upload one file to the default station's media root:
 
 ```bash
-rpmedia-cli media upload song.mp3
+media-cli media upload song.mp3
 ```
 
 Upload to another station:
 
 ```bash
-rpmedia-cli media upload song.mp3 --station "Kumasi FM"
+media-cli media upload song.mp3 --station "Kumasi FM"
 ```
 
 Upload multiple files:
 
 ```bash
-rpmedia-cli media upload song1.mp3 song2.mp3
+media-cli media upload song1.mp3 song2.mp3
 ```
 
 Upload with a glob pattern:
 
 ```bash
-rpmedia-cli media upload "./tracks/*.mp3" --folder "High Rotation"
+media-cli media upload "./tracks/*.mp3" --folder "High Rotation"
 ```
 
 Upload a directory recursively:
 
 ```bash
-rpmedia-cli media upload ./New-Releases
+media-cli media upload ./New-Releases
 ```
 
 This maps the local directory `New-Releases` to the remote folder `New-Releases` on the selected station.
@@ -157,25 +170,25 @@ This maps the local directory `New-Releases` to the remote folder `New-Releases`
 Upload a directory into a specific folder:
 
 ```bash
-rpmedia-cli media upload ./Music --folder "High Rotation"
+media-cli media upload ./Music --folder "High Rotation"
 ```
 
 Upload multiple directories into matching remote folders:
 
 ```bash
-rpmedia-cli media upload ./Music ./Jingles --create-folders --yes
+media-cli media upload ./Music ./Jingles --create-folders --yes
 ```
 
 Upload all files as jingles:
 
 ```bash
-rpmedia-cli media upload ./Jingles --jingle
+media-cli media upload ./Jingles --jingle
 ```
 
 Non-interactive batch upload:
 
 ```bash
-rpmedia-cli media upload ./Music \
+media-cli media upload ./Music \
   --station "Accra Radio" \
   --create-folders \
   --yes \
@@ -185,18 +198,18 @@ rpmedia-cli media upload ./Music \
 Process JSON results with jq:
 
 ```bash
-rpmedia-cli media upload ./Music --json | jq '.results[] | select(.success == false)'
+media-cli media upload ./Music --json | jq '.results[] | select(.success == false)'
 ```
 
 ## Media list
 
 ```bash
-rpmedia-cli media list
-rpmedia-cli media list --station "Accra Radio"
-rpmedia-cli media list --folder "High Rotation"
-rpmedia-cli media list --search "afrobeats"
-rpmedia-cli media list --page 2 --per-page 100
-rpmedia-cli media list --search "station id" --json
+media-cli media list
+media-cli media list --station "Accra Radio"
+media-cli media list --folder "High Rotation"
+media-cli media list --search "afrobeats"
+media-cli media list --page 2 --per-page 100
+media-cli media list --search "station id" --json
 ```
 
 Search is performed client-side on the fetched page.
@@ -227,7 +240,7 @@ Search is performed client-side on the fetched page.
 No CLI API key is configured.
 
 Run:
-  rpmedia-cli login
+  media-cli login
 ```
 
 ### Invalid or revoked key
@@ -244,7 +257,7 @@ Generate a new key in Account Settings → CLI API keys.
 No destination station is configured.
 
 Run:
-  rpmedia-cli stations use <uuid-or-name>
+  media-cli stations use <uuid-or-name>
 
 Or provide:
   --station <uuid-or-name>
@@ -259,7 +272,7 @@ Narrow the match by using a full UUID, a unique UUID prefix, or a more specific 
 Create it:
 
 ```bash
-rpmedia-cli folders create "Folder Name" --station "Station Name"
+media-cli folders create "Folder Name" --station "Station Name"
 ```
 
 Or upload with `--create-folders`.

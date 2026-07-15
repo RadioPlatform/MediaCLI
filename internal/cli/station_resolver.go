@@ -104,7 +104,7 @@ func (r *StationResolver) Resolve(ctx context.Context, stationFlag string) (*Res
 	msg := `No destination station is configured.
 
 Run:
-  rpmedia-cli stations use <uuid-or-name>
+  media-cli stations use <uuid-or-name>
 
 Or provide:
   --station <uuid-or-name>`
@@ -117,8 +117,8 @@ Or provide:
 				"message": "No destination station is configured.",
 				"details": map[string]interface{}{
 					"suggested_commands": []string{
-						"rpmedia-cli stations use <uuid-or-name>",
-						"rpmedia-cli media upload song.mp3 --station <uuid-or-name>",
+						"media-cli stations use <uuid-or-name>",
+						"media-cli media upload song.mp3 --station <uuid-or-name>",
 					},
 				},
 			},
@@ -174,7 +174,7 @@ func resolveStationByIDOrName(stations []api.Station, input string) (*ResolvedSt
 		return nil, ambiguousStationError(nameMatches, input)
 	}
 
-	return nil, fmt.Errorf("station %q not found. Use 'rpmedia-cli stations list' to see available stations", input)
+	return nil, fmt.Errorf("station %q not found. Use 'media-cli stations list' to see available stations", input)
 }
 
 func ambiguousStationError(matches []api.Station, input string) error {

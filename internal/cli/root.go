@@ -14,7 +14,7 @@ var (
 
 func NewRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "rpmedia-cli",
+		Use:   "media-cli",
 		Short: "Radioplatform Media CLI",
 		Long: `Radioplatform Media CLI
 
@@ -22,9 +22,9 @@ Manage your Radio Platform station media library from the command line.
 
 Getting started:
 
-  rpmedia-cli login
-  rpmedia-cli media upload song.mp3
-  rpmedia-cli media list`,
+  media-cli login
+  media-cli media upload song.mp3
+  media-cli media list`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       buildinfo.Version,

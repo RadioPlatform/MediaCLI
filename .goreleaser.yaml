@@ -1,13 +1,14 @@
 version: 2
+project_name: media-cli
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: rpmedia-cli
-    main: ./cmd/rpmedia-cli
-    binary: rpmedia-cli
+  - id: media-cli
+    main: ./cmd/media-cli
+    binary: media-cli
     env:
       - CGO_ENABLED=0
     goos:
@@ -24,15 +25,16 @@ builds:
 
 archives:
   - id: tar
-    format: tar.gz
+    formats:
+      - tar.gz
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
       {{- if eq .Arch "amd64" }}amd64
       {{- else if eq .Arch "arm64" }}arm64
       {{- else }}{{ .Arch }}{{ end }}
-    builds:
-      - rpmedia-cli
+    ids:
+      - media-cli
 
 checksum:
   name_template: "checksums.txt"

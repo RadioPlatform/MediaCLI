@@ -33,8 +33,8 @@ func NewFoldersListCmd() *cobra.Command {
 		Long: `List media folders for a station.
 
 Examples:
-  rpmedia-cli folders list
-  rpmedia-cli folders list --station "Accra Radio"`,
+  media-cli folders list
+  media-cli folders list --station "Accra Radio"`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runFoldersList(cmd, stationFlag)
@@ -55,8 +55,8 @@ func NewFoldersCreateCmd() *cobra.Command {
 		Long: `Create a new media folder on a station.
 
 Examples:
-  rpmedia-cli folders create "New Releases"
-  rpmedia-cli folders create "Jingles" --station 2f71a6cb`,
+  media-cli folders create "New Releases"
+  media-cli folders create "Jingles" --station 2f71a6cb`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runFoldersCreate(cmd, args[0], stationFlag)
