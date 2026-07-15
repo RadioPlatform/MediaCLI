@@ -3,3 +3,22 @@ rpmedia-cli.exe
 dist/
 *.test
 *.out
+
+# Go build and coverage artifacts
+bin/
+build/
+coverage/
+coverage.*
+*.prof
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.idea/
+.config/
+.vscode/
+.DS_Store
+Thumbs.db

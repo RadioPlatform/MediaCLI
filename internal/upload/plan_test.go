@@ -200,6 +200,27 @@ func TestPlanJingleFlag(t *testing.T) {
 	}
 }
 
+func TestPlanPreservesMetadata(t *testing.T) {
+	files := []DiscoveredFile{{
+		AbsolutePath: "/tmp/tagged.mp3",
+		Size:         10,
+		Metadata: MediaMetadata{
+			Title:  "Night Drive",
+			Artist: "Ama Radio",
+		},
+	}}
+	plan, err := BuildPlan(files, []string{"/tmp/tagged.mp3"}, PlanOptions{
+		StationUUID: "station-uuid",
+		StationName: "Test Station",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Items[0].Metadata.Title != "Night Drive" || plan.Items[0].Metadata.Artist != "Ama Radio" {
+		t.Fatalf("metadata was not preserved: %+v", plan.Items[0].Metadata)
+	}
+}
+
 func TestPlanTotalBytes(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "a.mp3"), []byte("AAAAA"), 0644)

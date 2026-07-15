@@ -34,6 +34,57 @@ func TestDiscoverSingleFile(t *testing.T) {
 	}
 }
 
+func TestDiscoverReadsID3v1Metadata(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tagged.mp3")
+
+	id3 := make([]byte, 128)
+	copy(id3[0:3], "TAG")
+	copy(id3[3:33], "Night Drive")
+	copy(id3[33:63], "Ama Radio")
+	copy(id3[63:93], "Accra After Dark")
+	copy(id3[93:97], "2026")
+	id3[125] = 0
+	id3[126] = 4
+	id3[127] = 17
+	payload := append([]byte("fake-mp3-audio-data"), id3...)
+	if err := os.WriteFile(path, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := DiscoverFiles([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := files[0].Metadata
+	if metadata.Title != "Night Drive" {
+		t.Fatalf("expected title Night Drive, got %q", metadata.Title)
+	}
+	if metadata.Artist != "Ama Radio" {
+		t.Fatalf("expected artist Ama Radio, got %q", metadata.Artist)
+	}
+	if metadata.Album != "Accra After Dark" {
+		t.Fatalf("expected album, got %q", metadata.Album)
+	}
+	if metadata.Year != 2026 || metadata.Track != 4 {
+		t.Fatalf("unexpected year/track: %d/%d", metadata.Year, metadata.Track)
+	}
+	if metadata.TagFormat != "ID3v1" {
+		t.Fatalf("expected ID3v1 format, got %q", metadata.TagFormat)
+	}
+}
+
+func TestDiscoverIgnoresMissingMetadata(t *testing.T) {
+	dir := setupTestFiles(t, map[string]string{"untagged.mp3": "plain audio"})
+	files, err := DiscoverFiles([]string{filepath.Join(dir, "untagged.mp3")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files[0].Metadata.HasValues() {
+		t.Fatalf("unexpected metadata: %+v", files[0].Metadata)
+	}
+}
+
 func TestDiscoverMultipleFiles(t *testing.T) {
 	dir := setupTestFiles(t, map[string]string{
 		"song1.mp3": "audio1",

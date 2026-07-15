@@ -205,6 +205,10 @@ Search is performed client-side on the fetched page.
 
 - The API has no dedicated directory-upload endpoint.
 - The CLI recursively finds local files in the specified directories.
+- Embedded metadata is read before upload when available. Supported tags include ID3v1/ID3v2, MP4, FLAC, and OGG metadata.
+- Interactive plans show title, artist, album, and track information. Single-file uploads also show year, genre, and tag format.
+- Missing or malformed metadata never blocks an upload; the CLI falls back to the filename.
+- JSON upload results include a `metadata` object for tagged files.
 - Each file is uploaded through a separate multipart API request.
 - Top-level directories map to remote folders by their basename.
 - Nested local directories are flattened into the mapped top-level remote folder.
