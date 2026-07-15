@@ -1,0 +1,5 @@
+rpmedia-cli
+rpmedia-cli.exe
+dist/
+*.test
+*.out

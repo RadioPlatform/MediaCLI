@@ -1,0 +1,49 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: rpmedia-cli
+    main: ./cmd/rpmedia-cli
+    binary: rpmedia-cli
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X radioplatform-media-ci/internal/buildinfo.Version={{.Version}}
+      - -X radioplatform-media-ci/internal/buildinfo.Commit={{.Commit}}
+      - -X radioplatform-media-ci/internal/buildinfo.BuildDate={{.Date}}
+
+archives:
+  - id: tar
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}amd64
+      {{- else if eq .Arch "arm64" }}arm64
+      {{- else }}{{ .Arch }}{{ end }}
+    builds:
+      - rpmedia-cli
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  name_template: "{{ .Tag }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
