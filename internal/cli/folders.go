@@ -112,18 +112,10 @@ func runFoldersList(cmd *cobra.Command, stationFlag string) error {
 		return nil
 	}
 
-	headers := []string{"Name", "ID", "Media"}
+	headers := []string{"Name"}
 	rows := make([][]string, len(folders))
 	for i, f := range folders {
-		id := ""
-		if f.ID > 0 {
-			id = fmt.Sprintf("%d", f.ID)
-		}
-		mediaCount := ""
-		if f.MediaCount > 0 {
-			mediaCount = fmt.Sprintf("%d", f.MediaCount)
-		}
-		rows[i] = []string{f.Name, id, mediaCount}
+		rows[i] = []string{f.Name}
 	}
 	out.Table(headers, rows)
 

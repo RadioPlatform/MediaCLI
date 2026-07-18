@@ -98,7 +98,7 @@ func runMediaList(
 		var filtered []api.MediaItem
 		lowerSearch := strings.ToLower(search)
 		for _, item := range items {
-			if strings.Contains(strings.ToLower(item.Filename), lowerSearch) ||
+			if strings.Contains(strings.ToLower(item.DisplayFilename()), lowerSearch) ||
 				strings.Contains(strings.ToLower(item.Title), lowerSearch) {
 				filtered = append(filtered, item)
 			}
@@ -141,16 +141,16 @@ func runMediaList(
 			title = "-"
 		}
 		duration := "-"
-		if m.Duration > 0 {
-			duration = output.FormatDuration(m.Duration)
+		if m.DisplayDuration() > 0 {
+			duration = output.FormatDuration(m.DisplayDuration())
 		}
 		jingleStr := output.FormatBool(m.IsJingle)
 
 		rows[i] = []string{
-			m.Filename,
+			m.DisplayFilename(),
 			title,
 			folderName,
-			output.FormatBytes(m.Size),
+			output.FormatBytes(m.DisplaySize()),
 			duration,
 			jingleStr,
 		}

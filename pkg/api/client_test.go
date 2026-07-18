@@ -218,10 +218,8 @@ func TestListFolders(t *testing.T) {
 		if r.URL.Path != expected {
 			t.Errorf("expected %s, got %s", expected, r.URL.Path)
 		}
-		json.NewEncoder(w).Encode(FoldersResponse{
-			Data: []Folder{
-				{ID: 1, Name: "Folder 1", MediaCount: 5},
-			},
+		json.NewEncoder(w).Encode(map[string]any{
+			"data": []string{"Folder 1", "Folder 2"},
 		})
 	})
 	defer srv.Close()
@@ -230,14 +228,11 @@ func TestListFolders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(folders) != 1 {
-		t.Fatalf("expected 1 folder, got %d", len(folders))
+	if len(folders) != 2 {
+		t.Fatalf("expected 2 folders, got %d", len(folders))
 	}
 	if folders[0].Name != "Folder 1" {
 		t.Errorf("expected Folder 1, got %s", folders[0].Name)
-	}
-	if folders[0].MediaCount != 5 {
-		t.Errorf("expected MediaCount 5, got %d", folders[0].MediaCount)
 	}
 }
 
@@ -252,8 +247,9 @@ func TestCreateFolder(t *testing.T) {
 		if req.Name != "New Folder" {
 			t.Errorf("expected New Folder, got %s", req.Name)
 		}
-		json.NewEncoder(w).Encode(CreateFolderResponse{
-			Data: Folder{ID: 1, Name: "New Folder"},
+		json.NewEncoder(w).Encode(map[string]any{
+			"message": "Folder created.",
+			"data":    map[string]string{"folder": "New Folder"},
 		})
 	})
 	defer srv.Close()
@@ -272,9 +268,19 @@ func TestListMedia(t *testing.T) {
 		if r.URL.Query().Get("page") != "1" {
 			t.Errorf("expected page=1")
 		}
+		if r.URL.Query().Get("folder") != "High Rotation" {
+			t.Errorf("expected folder query")
+		}
 		json.NewEncoder(w).Encode(MediaResponse{
 			Data: []MediaItem{
-				{ID: 1, Filename: "song.mp3", Size: 1000},
+				{
+					UUID:             "track-1",
+					OriginalFilename: "song.mp3",
+					Filename:         "song.mp3",
+					SizeBytes:        1000,
+					DurationSeconds:  120,
+					Folder:           "High Rotation",
+				},
 			},
 			Meta: PaginationMeta{
 				CurrentPage: 1,
@@ -286,15 +292,22 @@ func TestListMedia(t *testing.T) {
 	})
 	defer srv.Close()
 
-	resp, err := client.ListMedia(context.Background(), "station-uuid", MediaListParams{Page: 1, PerPage: 50})
+	resp, err := client.ListMedia(context.Background(), "station-uuid", MediaListParams{
+		Page:    1,
+		PerPage: 50,
+		Folder:  "High Rotation",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(resp.Data) != 1 {
 		t.Fatalf("expected 1 media item, got %d", len(resp.Data))
 	}
-	if resp.Data[0].Filename != "song.mp3" {
-		t.Errorf("expected song.mp3, got %s", resp.Data[0].Filename)
+	if resp.Data[0].DisplayFilename() != "song.mp3" {
+		t.Errorf("expected song.mp3, got %s", resp.Data[0].DisplayFilename())
+	}
+	if resp.Data[0].DisplaySize() != 1000 {
+		t.Errorf("expected size 1000, got %d", resp.Data[0].DisplaySize())
 	}
 	if resp.Meta.CurrentPage != 1 {
 		t.Errorf("expected page 1, got %d", resp.Meta.CurrentPage)

@@ -317,6 +317,26 @@ func (c *Client) ListFolders(ctx context.Context, stationUUID string) ([]Folder,
 		return nil, NewAPIError(ErrInvalidResponse, resp.StatusCode, "failed to read response", err)
 	}
 
+	var stringWrapper struct {
+		Data []string `json:"data"`
+	}
+	if err := json.Unmarshal(body, &stringWrapper); err == nil && stringWrapper.Data != nil {
+		folders := make([]Folder, 0, len(stringWrapper.Data))
+		for _, name := range stringWrapper.Data {
+			folders = append(folders, Folder{Name: name})
+		}
+		return folders, nil
+	}
+
+	var names []string
+	if err := json.Unmarshal(body, &names); err == nil {
+		folders := make([]Folder, 0, len(names))
+		for _, name := range names {
+			folders = append(folders, Folder{Name: name})
+		}
+		return folders, nil
+	}
+
 	var wrapper FoldersResponse
 	if err := json.Unmarshal(body, &wrapper); err == nil {
 		return wrapper.Data, nil
@@ -347,7 +367,13 @@ func (c *Client) CreateFolder(ctx context.Context, stationUUID, name string) (*F
 	if err != nil {
 		return nil, err
 	}
-	return &wrapper.Data, nil
+
+	folderName := wrapper.Data.Folder
+	if folderName == "" {
+		folderName = name
+	}
+
+	return &Folder{Name: folderName}, nil
 }
 
 type MediaListParams struct {

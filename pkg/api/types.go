@@ -1,24 +1,54 @@
 package api
 
 type Station struct {
-	UUID string `json:"uuid"`
+	UUID     string `json:"uuid"`
+	Name     string `json:"name"`
+	IsActive *bool  `json:"is_active,omitempty"`
+}
+
+// Folder is a media library folder path on a station.
+type Folder struct {
 	Name string `json:"name"`
 }
 
-type Folder struct {
-	ID         int    `json:"id"`
-	Name       string `json:"name"`
-	MediaCount int    `json:"media_count"`
+type MediaItem struct {
+	UUID             string `json:"uuid,omitempty"`
+	Filename         string `json:"filename,omitempty"`
+	OriginalFilename string `json:"original_filename,omitempty"`
+	Title            string `json:"title,omitempty"`
+	Folder           string `json:"folder,omitempty"`
+	SizeBytes        int64  `json:"size_bytes,omitempty"`
+	DurationSeconds  int    `json:"duration_seconds,omitempty"`
+	IsJingle         bool   `json:"is_jingle"`
+
+	// Legacy fields kept for older fixtures/tests.
+	ID       int   `json:"id,omitempty"`
+	Size     int64 `json:"size,omitempty"`
+	Duration int   `json:"duration,omitempty"`
 }
 
-type MediaItem struct {
-	ID       int    `json:"id"`
-	Filename string `json:"filename"`
-	Title    string `json:"title,omitempty"`
-	Folder   string `json:"folder,omitempty"`
-	Size     int64  `json:"size"`
-	Duration int    `json:"duration,omitempty"`
-	IsJingle bool   `json:"is_jingle"`
+func (m MediaItem) DisplayFilename() string {
+	if m.OriginalFilename != "" {
+		return m.OriginalFilename
+	}
+	if m.Filename != "" {
+		return m.Filename
+	}
+	return ""
+}
+
+func (m MediaItem) DisplaySize() int64 {
+	if m.SizeBytes > 0 {
+		return m.SizeBytes
+	}
+	return m.Size
+}
+
+func (m MediaItem) DisplayDuration() int {
+	if m.DurationSeconds > 0 {
+		return m.DurationSeconds
+	}
+	return m.Duration
 }
 
 type PaginationMeta struct {
@@ -54,7 +84,9 @@ type CreateFolderRequest struct {
 }
 
 type CreateFolderResponse struct {
-	Data Folder `json:"data"`
+	Data struct {
+		Folder string `json:"folder"`
+	} `json:"data"`
 }
 
 type UploadResult struct {
