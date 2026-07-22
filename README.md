@@ -49,9 +49,11 @@ Every branch push and pull request runs formatting checks, `go vet`, race-enable
 Push a semantic version tag to publish a GitHub Release:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag 1.0.0
+git push origin 1.0.0
 ```
+
+Tags may also use a `v` prefix (`v1.0.0`).
 
 The release contains Linux and macOS binaries for amd64 and arm64, plus `checksums.txt`.
 
