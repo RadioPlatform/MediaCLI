@@ -94,3 +94,22 @@ type UploadResult struct {
 	Success bool       `json:"success"`
 	Error   string     `json:"error,omitempty"`
 }
+
+type UploadProgress struct {
+	UploadID       string `json:"upload_id"`
+	ChunkIndex     int    `json:"chunk_index"`
+	ChunksReceived int    `json:"chunks_received"`
+	TotalChunks    int    `json:"total_chunks"`
+	BytesReceived  int64  `json:"bytes_received"`
+	TotalBytes     int64  `json:"total_size"`
+	Complete       bool   `json:"complete"`
+}
+
+type UploadProgressFunc func(UploadProgress)
+
+type chunkUploadResponse struct {
+	Data struct {
+		UploadProgress
+		Track *MediaItem `json:"track,omitempty"`
+	} `json:"data"`
+}

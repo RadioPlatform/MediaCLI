@@ -9,7 +9,7 @@ A command-line tool for managing your RadioPlatform station media library — up
 - **Folder management** — create and list remote folders
 - **Batch operations** — non-interactive uploads with JSON output
 - **Metadata parsing** — reads ID3v1/ID3v2, MP4, FLAC, and OGG tags
-- **Progress bars** — real-time upload progress with `mpb`
+- **Chunked uploads** — retryable 5 MiB chunks with server-confirmed byte progress
 - **Interactive login** — guided setup with station selection
 
 ## Installation
@@ -97,6 +97,8 @@ media-cli folders create "Jingles" --station 2f71a6cb
 ```
 
 ### Upload media
+
+Files are sent through the chunk-upload API in retryable 5 MiB parts. Interactive terminals display one server-confirmed byte progress bar per active file; JSON mode emits only the final result document.
 
 ```bash
 # Single file

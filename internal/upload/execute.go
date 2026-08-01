@@ -105,7 +105,7 @@ func (e *Executor) executeSimple(ctx context.Context, items []UploadItem, plan *
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			result := e.uploadItem(ctx, item, plan)
+			result := e.uploadItem(ctx, item, plan, nil)
 			mu.Lock()
 			*results = append(*results, result)
 			mu.Unlock()
@@ -114,50 +114,54 @@ func (e *Executor) executeSimple(ctx context.Context, items []UploadItem, plan *
 }
 
 func (e *Executor) executeWithProgress(ctx context.Context, items []UploadItem, plan *UploadPlan, results *[]UploadResult, mu *sync.Mutex, wg *sync.WaitGroup, sem chan struct{}) {
-	p := mpb.New(mpb.WithWaitGroup(wg), mpb.WithWidth(60))
-
-	bar := p.AddBar(int64(len(items)),
-		mpb.PrependDecorators(
-			decor.CountersNoUnit("%d / %d", decor.WCSyncWidth),
-		),
-		mpb.AppendDecorators(
-			decor.Elapsed(decor.ET_STYLE_GO),
-			decor.OnComplete(
-				decor.NewPercentage("%.0f%%", decor.WCSyncWidth),
-				" done",
-			),
-		),
-	)
+	p := mpb.New(mpb.WithWaitGroup(wg), mpb.WithWidth(90))
 
 	for _, item := range items {
+		bar := p.AddBar(item.Size,
+			mpb.PrependDecorators(
+				decor.Name(progressName(item.DestinationName)+" ", decor.WCSyncWidth),
+				decor.CountersKibiByte("% .1f / % .1f", decor.WCSyncWidth),
+			),
+			mpb.AppendDecorators(
+				decor.OnComplete(
+					decor.NewPercentage("%.0f%%", decor.WCSyncWidth),
+					" done",
+				),
+				decor.Elapsed(decor.ET_STYLE_MMSS, decor.WCSyncWidth),
+			),
+		)
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(item UploadItem) {
+		go func(item UploadItem, bar *mpb.Bar) {
 			defer wg.Done()
-			defer func() {
-				<-sem
-				bar.Increment()
-			}()
+			defer func() { <-sem }()
 
-			result := e.uploadItem(ctx, item, plan)
+			result := e.uploadItem(ctx, item, plan, func(progress api.UploadProgress) {
+				bar.SetCurrent(progress.BytesReceived)
+			})
+			if result.Success {
+				bar.SetCurrent(item.Size)
+			} else {
+				bar.Abort(false)
+			}
 
 			mu.Lock()
 			*results = append(*results, result)
 			mu.Unlock()
-		}(item)
+		}(item, bar)
 	}
 
 	p.Wait()
 }
 
-func (e *Executor) uploadItem(ctx context.Context, item UploadItem, plan *UploadPlan) UploadResult {
+func (e *Executor) uploadItem(ctx context.Context, item UploadItem, plan *UploadPlan, onProgress api.UploadProgressFunc) UploadResult {
 	input := api.UploadMediaInput{
 		FilePath: item.LocalPath,
 		Folder:   item.DestinationFolder,
 		IsJingle: item.IsJingle,
 	}
 
-	result, err := e.client.UploadMediaStreamed(ctx, plan.StationUUID, input)
+	result, err := e.client.UploadMediaChunked(ctx, plan.StationUUID, input, onProgress)
 	if err != nil {
 		return UploadResult{
 			Item:    item,
@@ -179,6 +183,15 @@ func (e *Executor) uploadItem(ctx context.Context, item UploadItem, plan *Upload
 		Success: true,
 		Media:   result.Media,
 	}
+}
+
+func progressName(filename string) string {
+	const maximumRunes = 28
+	runes := []rune(filename)
+	if len(runes) <= maximumRunes {
+		return filename
+	}
+	return string(runes[:maximumRunes-1]) + "…"
 }
 
 type UploadError struct {

@@ -33,6 +33,8 @@ func NewMediaUploadCmd() *cobra.Command {
 
 Accepts files, glob patterns, and directories. Directories are uploaded recursively.
 Nested local directories are flattened into the mapped top-level remote folder.
+Files are sent in retryable chunks. Interactive terminals display
+server-confirmed byte progress for each active file.
 
 Upload one file to the default station's media root:
   media-cli media upload song.mp3
@@ -314,7 +316,7 @@ func runMediaUpload(
 		}
 	}
 
-	showProgress := term.IsTerminal(int(os.Stdout.Fd())) && !out.IsJSON() && !yes
+	showProgress := term.IsTerminal(int(os.Stdout.Fd())) && !out.IsJSON()
 
 	executor := upload.NewExecutor(client, concurrency, showProgress)
 	summary := executor.Execute(cmd.Context(), plan)

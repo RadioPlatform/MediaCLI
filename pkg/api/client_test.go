@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/json"
@@ -10,6 +11,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -539,6 +542,154 @@ func TestUploadMediaStreamedDoesNotRetryServerFailure(t *testing.T) {
 	}
 	if attempts != 1 {
 		t.Fatalf("non-idempotent server failure was retried %d times", attempts)
+	}
+}
+
+func TestUploadMediaChunkedRetriesAndReportsServerProgress(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "chunked song.mp3")
+	payload := make([]byte, mediaUploadChunkSize+137)
+	for index := range payload {
+		payload[index] = byte(index % 251)
+	}
+	if err := os.WriteFile(filePath, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	uuidPattern := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	attempts := map[int]int{}
+	idempotencyKeys := map[int]string{}
+	var uploadID string
+	srv, client := testServer(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(r.URL.Path, "/")
+		if len(parts) != 10 || parts[1] != "api" || parts[4] != "stations" || parts[6] != "media" || parts[7] != "uploads" || parts[9] != "chunks" {
+			t.Errorf("unexpected upload path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		requestUploadID := parts[8]
+		if !uuidPattern.MatchString(requestUploadID) {
+			t.Errorf("upload ID is not a UUID: %q", requestUploadID)
+		}
+		if uploadID == "" {
+			uploadID = requestUploadID
+		} else if requestUploadID != uploadID {
+			t.Errorf("upload ID changed: %q != %q", requestUploadID, uploadID)
+		}
+
+		if err := r.ParseMultipartForm(6 << 20); err != nil {
+			t.Errorf("invalid multipart request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		chunkIndex, err := strconv.Atoi(r.FormValue("chunk_index"))
+		if err != nil {
+			t.Fatalf("invalid chunk index: %v", err)
+		}
+		attempts[chunkIndex]++
+		key := r.Header.Get("Idempotency-Key")
+		if key == "" {
+			t.Error("missing idempotency key")
+		}
+		if previous := idempotencyKeys[chunkIndex]; previous != "" && previous != key {
+			t.Errorf("chunk %d idempotency key changed", chunkIndex)
+		}
+		idempotencyKeys[chunkIndex] = key
+
+		chunk, _, err := r.FormFile("chunk")
+		if err != nil {
+			t.Fatalf("missing chunk: %v", err)
+		}
+		chunkPayload, err := io.ReadAll(chunk)
+		_ = chunk.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		offset := int64(chunkIndex) * mediaUploadChunkSize
+		end := min(offset+mediaUploadChunkSize, int64(len(payload)))
+		if !bytes.Equal(chunkPayload, payload[offset:end]) {
+			t.Errorf("chunk %d payload does not match source", chunkIndex)
+		}
+		if r.FormValue("chunk_size") != strconv.FormatInt(mediaUploadChunkSize, 10) || r.FormValue("total_chunks") != "2" || r.FormValue("total_size") != strconv.Itoa(len(payload)) {
+			t.Errorf("incorrect chunk shape: %v", r.MultipartForm.Value)
+		}
+		if r.FormValue("filename") != "chunked song.mp3" || r.FormValue("mime_type") != "audio/mpeg" || r.FormValue("folder") != "Music" || r.FormValue("is_jingle") != "true" {
+			t.Errorf("incorrect upload metadata: %v", r.MultipartForm.Value)
+		}
+
+		if chunkIndex == 0 && attempts[chunkIndex] == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		bytesReceived := min(int64(chunkIndex+1)*mediaUploadChunkSize, int64(len(payload)))
+		complete := chunkIndex == 1
+		status := http.StatusOK
+		if complete {
+			status = http.StatusCreated
+		}
+		w.WriteHeader(status)
+		response := map[string]interface{}{
+			"data": map[string]interface{}{
+				"upload_id":       uploadID,
+				"chunk_index":     chunkIndex,
+				"chunks_received": chunkIndex + 1,
+				"total_chunks":    2,
+				"bytes_received":  bytesReceived,
+				"total_size":      len(payload),
+				"complete":        complete,
+			},
+		}
+		if complete {
+			response["data"].(map[string]interface{})["track"] = MediaItem{
+				UUID:             "track-uuid",
+				OriginalFilename: "chunked song.mp3",
+				SizeBytes:        int64(len(payload)),
+				IsJingle:         true,
+			}
+		}
+		_ = json.NewEncoder(w).Encode(response)
+	})
+	defer srv.Close()
+
+	var progress []UploadProgress
+	result, err := client.UploadMediaChunked(context.Background(), "station-uuid", UploadMediaInput{
+		FilePath: filePath,
+		Folder:   "Music",
+		IsJingle: true,
+	}, func(update UploadProgress) {
+		progress = append(progress, update)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Success {
+		t.Fatalf("chunked upload failed: %s", result.Error)
+	}
+	if result.Media == nil || result.Media.UUID != "track-uuid" {
+		t.Fatalf("unexpected media response: %+v", result.Media)
+	}
+	if attempts[0] != 2 || attempts[1] != 1 {
+		t.Fatalf("unexpected attempts: %+v", attempts)
+	}
+	if len(progress) != 2 || progress[0].BytesReceived != mediaUploadChunkSize || progress[1].BytesReceived != int64(len(payload)) || !progress[1].Complete {
+		t.Fatalf("unexpected progress: %+v", progress)
+	}
+}
+
+func TestUploadMediaChunkedRejectsEmptyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.mp3")
+	if err := os.WriteFile(path, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	client := NewClient("test-key")
+	result, err := client.UploadMediaChunked(context.Background(), "station-uuid", UploadMediaInput{FilePath: path}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Success || !strings.Contains(strings.ToLower(result.Error), "empty") {
+		t.Fatalf("expected empty-file failure, got %+v", result)
 	}
 }
 

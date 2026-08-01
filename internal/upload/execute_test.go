@@ -21,3 +21,15 @@ func TestTallyResultsCountsOnlySuccessfulBytes(t *testing.T) {
 		t.Fatalf("planned total changed: got %d", summary.TotalBytes)
 	}
 }
+
+func TestProgressNameTruncatesLongFilenames(t *testing.T) {
+	short := "song.mp3"
+	if got := progressName(short); got != short {
+		t.Fatalf("short name changed: %q", got)
+	}
+	long := "very-long-radio-track-filename-for-upload.mp3"
+	got := progressName(long)
+	if len([]rune(got)) != 28 || got[len(got)-3:] != "…" {
+		t.Fatalf("unexpected truncated name: %q", got)
+	}
+}
