@@ -95,6 +95,65 @@ func TestEnvKeyOverride(t *testing.T) {
 	}
 }
 
+func TestServerURLConfigurationAndEnvironmentOverride(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+
+	if err := Save(&Config{ServerURL: "https://configured.example.com/"}); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.EffectiveServerURL(); got != "https://configured.example.com" {
+		t.Fatalf("expected configured URL, got %q", got)
+	}
+	if got := loaded.ServerSource(); got != "config file" {
+		t.Fatalf("expected config file source, got %q", got)
+	}
+
+	t.Setenv("RADIO_PLATFORM_CLI_URL", "https://environment.example.com/")
+	loaded, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.EffectiveServerURL(); got != "https://environment.example.com" {
+		t.Fatalf("expected environment URL, got %q", got)
+	}
+	if got := loaded.ServerSource(); got != "environment" {
+		t.Fatalf("expected environment source, got %q", got)
+	}
+}
+
+func TestEnvironmentServerURLIsNotPersisted(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("RADIO_PLATFORM_CLI_URL", "https://temporary.example.com")
+
+	if err := Save(&Config{ServerURL: "https://stored.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveWithPreservation(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("RADIO_PLATFORM_CLI_URL", "")
+	reloaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.EffectiveServerURL(); got != "https://stored.example.com" {
+		t.Fatalf("temporary environment URL was persisted: got %q", got)
+	}
+}
+
 func TestEnvironmentKeyIsNotPersisted(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)

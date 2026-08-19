@@ -8,7 +8,6 @@ import (
 
 	"radioplatform-media-ci/internal/config"
 	"radioplatform-media-ci/internal/output"
-	"radioplatform-media-ci/pkg/api"
 )
 
 func NewFoldersCmd() *cobra.Command {
@@ -80,7 +79,10 @@ func runFoldersList(cmd *cobra.Command, stationFlag string) error {
 		return missingCredentialsError(out)
 	}
 
-	client := api.NewClient(cfg.EffectiveAPIKey())
+	client, err := newAPIClient(cfg, out)
+	if err != nil {
+		return err
+	}
 	resolver := NewStationResolver(client, cfg, out)
 
 	station, err := resolver.Resolve(cmd.Context(), stationFlag)
@@ -138,7 +140,10 @@ func runFoldersCreate(cmd *cobra.Command, name string, stationFlag string) error
 		return missingCredentialsError(out)
 	}
 
-	client := api.NewClient(cfg.EffectiveAPIKey())
+	client, err := newAPIClient(cfg, out)
+	if err != nil {
+		return err
+	}
 	resolver := NewStationResolver(client, cfg, out)
 
 	station, err := resolver.Resolve(cmd.Context(), stationFlag)

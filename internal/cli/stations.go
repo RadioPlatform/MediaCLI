@@ -74,7 +74,10 @@ func runStationsList(cmd *cobra.Command, verbose bool) error {
 		return missingCredentialsError(out)
 	}
 
-	client := api.NewClient(cfg.EffectiveAPIKey())
+	client, err := newAPIClient(cfg, out)
+	if err != nil {
+		return err
+	}
 	stations, err := client.ListStations(cmd.Context())
 	if err != nil {
 		return handleAPIError(out, err)
@@ -124,7 +127,10 @@ func runStationsUse(cmd *cobra.Command, args []string) error {
 		return missingCredentialsError(out)
 	}
 
-	client := api.NewClient(cfg.EffectiveAPIKey())
+	client, err := newAPIClient(cfg, out)
+	if err != nil {
+		return err
+	}
 	stations, err := client.ListStations(cmd.Context())
 	if err != nil {
 		return handleAPIError(out, err)

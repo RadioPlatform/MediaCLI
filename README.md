@@ -76,6 +76,9 @@ Select the default station:
 
 Generate a CLI API key in **Account Settings → CLI API keys** before logging in.
 
+Provide the server URL when prompted during interactive login. For non-interactive
+use, set both `RADIO_PLATFORM_CLI_KEY` and `RADIO_PLATFORM_CLI_URL`.
+
 ## Usage
 
 ### Stations
@@ -147,6 +150,17 @@ media-cli media list --search "station id" --json
 ## Configuration
 
 Configuration is stored in `~/.config/rpmedia-cli/config.json` (or `$XDG_CONFIG_HOME/rpmedia-cli/config.json` if `XDG_CONFIG_HOME` is set).
+
+The server URL can be stored in the configuration file as `server_url` or set at
+runtime with `RADIO_PLATFORM_CLI_URL`. The environment variable takes precedence,
+matching the behavior of `RADIO_PLATFORM_CLI_KEY`.
+
+```json
+{
+  "server_url": "https://radio.example.com",
+  "api_key": "your-cli-api-key"
+}
+```
 
 | Setting | Details |
 |---------|---------|

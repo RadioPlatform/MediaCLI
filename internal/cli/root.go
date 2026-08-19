@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"radioplatform-media-ci/internal/buildinfo"
+	"radioplatform-media-ci/internal/config"
+	"radioplatform-media-ci/internal/output"
+	"radioplatform-media-ci/pkg/api"
 )
 
 var (
@@ -44,4 +49,24 @@ Getting started:
 	cmd.AddCommand(NewVersionCmd())
 
 	return cmd
+}
+
+func newAPIClient(cfg *config.Config, out *output.Output) (*api.Client, error) {
+	if !cfg.HasServerURL() {
+		msg := "Server URL is not configured. Set RADIO_PLATFORM_CLI_URL or add server_url to the config file."
+		if out.IsJSON() {
+			out.PrintJSONError(map[string]interface{}{
+				"success": false,
+				"error": map[string]interface{}{
+					"code":    "missing_server_url",
+					"message": msg,
+				},
+			})
+		} else {
+			out.PrintError(msg)
+		}
+		return nil, fmt.Errorf("server URL is not configured")
+	}
+
+	return api.NewClient(cfg.EffectiveAPIKey(), api.WithBaseURL(cfg.EffectiveServerURL())), nil
 }

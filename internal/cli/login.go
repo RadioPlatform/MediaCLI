@@ -25,7 +25,7 @@ The CLI will validate your credentials and prompt you to select
 a default station.
 
 Non-interactive environments should use the RADIO_PLATFORM_CLI_KEY
-environment variable instead.`,
+and RADIO_PLATFORM_CLI_URL environment variables instead.`,
 		Args: cobra.NoArgs,
 		RunE: runLogin,
 	}
@@ -39,7 +39,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		msg := `Interactive login requires a terminal.
 
-For non-interactive commands, set RADIO_PLATFORM_CLI_KEY and provide --station.`
+For non-interactive commands, set RADIO_PLATFORM_CLI_KEY, set RADIO_PLATFORM_CLI_URL, and provide --station.`
 		if out.IsJSON() {
 			out.PrintJSONError(map[string]interface{}{
 				"success": false,
@@ -54,11 +54,13 @@ For non-interactive commands, set RADIO_PLATFORM_CLI_KEY and provide --station.`
 		return fmt.Errorf("interactive login requires a terminal")
 	}
 
-	out.PrintTitle("Radioplatform Media CLI")
-	out.Println()
-	out.PrintKV("Server", api.APIBaseURL)
+	cfg, err := config.Load()
+	if err != nil {
+		out.PrintError("Warning: could not load existing config: " + err.Error())
+	}
 
 	var apiKey string
+	serverURL := cfg.EffectiveServerURL()
 
 	prompt := huh.NewInput().
 		Title("CLI API key").
@@ -66,7 +68,23 @@ For non-interactive commands, set RADIO_PLATFORM_CLI_KEY and provide --station.`
 		EchoMode(huh.EchoModePassword).
 		Value(&apiKey)
 
-	err := huh.NewForm(huh.NewGroup(prompt)).WithTheme(huh.ThemeBase16()).Run()
+	fields := []huh.Field{prompt}
+	if !cfg.HasServerURL() {
+		serverPrompt := huh.NewInput().
+			Title("Server URL").
+			Prompt("").
+			Placeholder("https://radio.example.com").
+			Value(&serverURL)
+		fields = append(fields, serverPrompt)
+	}
+
+	out.PrintTitle("Radioplatform Media CLI")
+	out.Println()
+	if cfg.HasServerURL() {
+		out.PrintKV("Server", serverURL)
+	}
+
+	err = huh.NewForm(huh.NewGroup(fields...)).WithTheme(huh.ThemeBase16()).Run()
 	if err != nil {
 		return fmt.Errorf("input cancelled: %w", err)
 	}
@@ -74,10 +92,13 @@ For non-interactive commands, set RADIO_PLATFORM_CLI_KEY and provide --station.`
 	if apiKey == "" {
 		return fmt.Errorf("CLI API key cannot be empty")
 	}
+	if serverURL == "" {
+		return fmt.Errorf("server URL cannot be empty")
+	}
 
 	out.Println()
 
-	client := api.NewClient(apiKey)
+	client := api.NewClient(apiKey, api.WithBaseURL(serverURL))
 
 	stations, err := client.ListStations(cmd.Context())
 	if err != nil {
@@ -92,12 +113,10 @@ For non-interactive commands, set RADIO_PLATFORM_CLI_KEY and provide --station.`
 	out.PrintOK("\u2713 Credentials validated")
 	out.Println()
 
-	cfg, err := config.Load()
-	if err != nil {
-		out.PrintError("Warning: could not load existing config: " + err.Error())
-	}
-
 	cfg.APIKey = apiKey
+	if cfg.ServerSource() != "environment" {
+		cfg.ServerURL = serverURL
+	}
 
 	if len(stations) == 0 {
 		if err := config.SaveWithPreservation(cfg); err != nil {

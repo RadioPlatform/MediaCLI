@@ -21,8 +21,6 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const APIBaseURL = "https://radioplatform.streamafrica.cloud"
-
 const defaultRequestTimeout = 30 * time.Minute
 
 const (
@@ -40,6 +38,14 @@ type Client struct {
 }
 
 type ClientOption func(*Client)
+
+// WithBaseURL configures the Radio Platform server used for requests.
+// Callers are responsible for supplying a URL; no server is selected by default.
+func WithBaseURL(baseURL string) ClientOption {
+	return func(c *Client) {
+		c.baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	}
+}
 
 func WithHTTPClient(hc *http.Client) ClientOption {
 	return func(c *Client) {
@@ -67,7 +73,6 @@ func WithClock(clock Clock) ClientOption {
 
 func NewClient(apiKey string, opts ...ClientOption) *Client {
 	c := &Client{
-		baseURL:    APIBaseURL,
 		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: defaultRequestTimeout},
 		limiter:    rate.NewLimiter(rate.Every(time.Second), 1),

@@ -12,7 +12,6 @@ import (
 	"radioplatform-media-ci/internal/config"
 	"radioplatform-media-ci/internal/output"
 	"radioplatform-media-ci/internal/upload"
-	"radioplatform-media-ci/pkg/api"
 )
 
 func NewMediaUploadCmd() *cobra.Command {
@@ -115,7 +114,10 @@ func runMediaUpload(
 		return missingCredentialsError(out)
 	}
 
-	client := api.NewClient(cfg.EffectiveAPIKey())
+	client, err := newAPIClient(cfg, out)
+	if err != nil {
+		return err
+	}
 	resolver := NewStationResolver(client, cfg, out)
 
 	station, err := resolver.Resolve(cmd.Context(), stationFlag)

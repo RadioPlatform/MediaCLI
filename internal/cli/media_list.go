@@ -73,7 +73,10 @@ func runMediaList(
 		return missingCredentialsError(out)
 	}
 
-	client := api.NewClient(cfg.EffectiveAPIKey())
+	client, err := newAPIClient(cfg, out)
+	if err != nil {
+		return err
+	}
 	resolver := NewStationResolver(client, cfg, out)
 
 	station, err := resolver.Resolve(cmd.Context(), stationFlag)

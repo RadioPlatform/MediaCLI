@@ -11,9 +11,11 @@ import (
 
 type Config struct {
 	APIKey             string `json:"api_key,omitempty"`
+	ServerURL          string `json:"server_url,omitempty"`
 	DefaultStationUUID string `json:"default_station_uuid,omitempty"`
 	DefaultStationName string `json:"default_station_name,omitempty"`
 	runtimeAPIKey      string
+	runtimeServerURL   string
 }
 
 func ConfigDir() (string, error) {
@@ -39,8 +41,15 @@ func apiKeyFromEnv() string {
 	return os.Getenv("RADIO_PLATFORM_CLI_KEY")
 }
 
+func serverURLFromEnv() string {
+	return strings.TrimRight(strings.TrimSpace(os.Getenv("RADIO_PLATFORM_CLI_URL")), "/")
+}
+
 func Load() (*Config, error) {
-	cfg := &Config{runtimeAPIKey: apiKeyFromEnv()}
+	cfg := &Config{
+		runtimeAPIKey:    apiKeyFromEnv(),
+		runtimeServerURL: serverURLFromEnv(),
+	}
 
 	path, err := ConfigPath()
 	if err != nil {
@@ -61,6 +70,7 @@ func Load() (*Config, error) {
 	}
 
 	cfg.APIKey = fileCfg.APIKey
+	cfg.ServerURL = strings.TrimRight(strings.TrimSpace(fileCfg.ServerURL), "/")
 	if cfg.DefaultStationUUID == "" {
 		cfg.DefaultStationUUID = fileCfg.DefaultStationUUID
 	}
@@ -73,6 +83,29 @@ func Load() (*Config, error) {
 
 func (c *Config) HasAPIKey() bool {
 	return c.EffectiveAPIKey() != ""
+}
+
+func (c *Config) HasServerURL() bool {
+	return c.EffectiveServerURL() != ""
+}
+
+// EffectiveServerURL returns the environment override when present without
+// copying it into the configuration that is persisted to disk.
+func (c *Config) EffectiveServerURL() string {
+	if c.runtimeServerURL != "" {
+		return c.runtimeServerURL
+	}
+	return strings.TrimRight(strings.TrimSpace(c.ServerURL), "/")
+}
+
+func (c *Config) ServerSource() string {
+	if c.runtimeServerURL != "" {
+		return "environment"
+	}
+	if c.ServerURL != "" {
+		return "config file"
+	}
+	return "not configured"
 }
 
 // EffectiveAPIKey returns the environment override when present without

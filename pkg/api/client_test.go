@@ -37,6 +37,7 @@ func testResponse(status int) *http.Response {
 func testServer(handler http.HandlerFunc) (*httptest.Server, *Client) {
 	srv := httptest.NewServer(handler)
 	client := NewClient("test-key",
+		WithBaseURL(srv.URL),
 		WithHTTPClient(srv.Client()),
 		WithLimiter(rate.NewLimiter(rate.Inf, 1)),
 		WithRetryConfig(RetryConfig{
@@ -45,9 +46,14 @@ func testServer(handler http.HandlerFunc) (*httptest.Server, *Client) {
 			MaxBackoff:     10 * time.Millisecond,
 		}),
 	)
-	// Override base URL
-	client.baseURL = srv.URL
 	return srv, client
+}
+
+func TestWithBaseURL(t *testing.T) {
+	client := NewClient("test-key", WithBaseURL(" https://radio.example.com/ "))
+	if got := client.BaseURL(); got != "https://radio.example.com" {
+		t.Fatalf("expected normalized URL, got %q", got)
+	}
 }
 
 func TestListStations(t *testing.T) {

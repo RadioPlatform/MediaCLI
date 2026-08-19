@@ -48,29 +48,34 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	connectionError := ""
 
 	if cfg.HasAPIKey() {
-		client := api.NewClient(cfg.EffectiveAPIKey())
-		stations, err := client.ListStations(cmd.Context())
-		if err == nil {
-			authValid = true
-			if cfg.HasDefaultStation() {
-				for _, s := range stations {
-					if s.UUID == cfg.DefaultStationUUID {
-						stationExists = true
-						break
+		if !cfg.HasServerURL() {
+			connectionError = "Server URL is not configured. Set RADIO_PLATFORM_CLI_URL or add server_url to the config file."
+		} else {
+			client := api.NewClient(cfg.EffectiveAPIKey(), api.WithBaseURL(cfg.EffectiveServerURL()))
+			stations, err := client.ListStations(cmd.Context())
+			if err == nil {
+				authValid = true
+				if cfg.HasDefaultStation() {
+					for _, s := range stations {
+						if s.UUID == cfg.DefaultStationUUID {
+							stationExists = true
+							break
+						}
 					}
 				}
+			} else if apiErr := api.AsAPIError(err); apiErr != nil {
+				connectionError = apiErr.FriendlyMessage()
+			} else {
+				connectionError = err.Error()
 			}
-		} else if apiErr := api.AsAPIError(err); apiErr != nil {
-			connectionError = apiErr.FriendlyMessage()
-		} else {
-			connectionError = err.Error()
 		}
 	}
 
 	if out.IsJSON() {
 		result := map[string]interface{}{
 			"product":                "Radioplatform Media CLI",
-			"server":                 api.APIBaseURL,
+			"server":                 cfg.EffectiveServerURL(),
+			"server_source":          cfg.ServerSource(),
 			"credentials":            maskedKey,
 			"credential_source":      credSource,
 			"config_file":            configPath,
@@ -86,7 +91,8 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	out.PrintTitle("Radioplatform Media CLI")
 	out.Println()
-	out.PrintKV("Server", api.APIBaseURL)
+	out.PrintKV("Server", cfg.EffectiveServerURL())
+	out.PrintKV("Server source", cfg.ServerSource())
 
 	if maskedKey != "" {
 		out.PrintKV("Credentials", maskedKey)
