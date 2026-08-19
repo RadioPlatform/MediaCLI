@@ -54,6 +54,10 @@ go install radioplatform-media-ci/cmd/media-cli@latest
 
 > **Note:** Windows is not currently supported.
 
+## Releases
+
+Published releases use `vMAJOR.MINOR.PATCH` tags, such as `v1.0.0`.
+
 ## Quick start
 
 ```console
