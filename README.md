@@ -105,7 +105,7 @@ media-cli folders create "Jingles" --station 2f71a6cb
 
 ### Upload media
 
-Files are sent through the chunk-upload API in retryable 5 MiB parts. Interactive terminals display one server-confirmed byte progress bar per active file; JSON mode emits only the final result document.
+Files are sent through the chunk-upload API in retryable 5 MiB parts. Interactive terminals display one overall server-confirmed byte progress bar with the active file name; JSON mode emits only the final result document.
 
 ```bash
 # Single file

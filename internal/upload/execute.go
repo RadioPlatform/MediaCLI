@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
@@ -114,44 +115,107 @@ func (e *Executor) executeSimple(ctx context.Context, items []UploadItem, plan *
 }
 
 func (e *Executor) executeWithProgress(ctx context.Context, items []UploadItem, plan *UploadPlan, results *[]UploadResult, mu *sync.Mutex, wg *sync.WaitGroup, sem chan struct{}) {
-	p := mpb.New(mpb.WithWaitGroup(wg), mpb.WithWidth(90))
+	var (
+		progressMu    sync.Mutex
+		itemBytes     = make([]int64, len(items))
+		activeUploads = make(map[int]string)
+		uploadedBytes int64
+		completed     int
+		failures      int
+	)
 
-	for _, item := range items {
-		bar := p.AddBar(item.Size,
-			mpb.PrependDecorators(
-				decor.Name(progressName(item.DestinationName)+" ", decor.WCSyncWidth),
-				decor.CountersKibiByte("% .1f / % .1f", decor.WCSyncWidth),
-			),
-			mpb.AppendDecorators(
-				decor.OnComplete(
-					decor.NewPercentage("%.0f%%", decor.WCSyncWidth),
-					" done",
-				),
-				decor.Elapsed(decor.ET_STYLE_MMSS, decor.WCSyncWidth),
-			),
-		)
-		wg.Add(1)
+	p := mpb.New(
+		mpb.WithWaitGroup(wg),
+		mpb.WithWidth(90),
+		mpb.WithRefreshRate(500*time.Millisecond),
+	)
+	bar := p.AddBar(plan.TotalBytes,
+		mpb.PrependDecorators(
+			decor.Any(func(decor.Statistics) string {
+				progressMu.Lock()
+				defer progressMu.Unlock()
+				return aggregateProgressName(completed, len(items), activeUploads)
+			}),
+			decor.CountersKibiByte("% .1f / % .1f"),
+		),
+		mpb.AppendDecorators(
+			decor.OnComplete(decor.NewPercentage("%.0f%%"), " done"),
+			decor.Elapsed(decor.ET_STYLE_MMSS),
+		),
+	)
+
+	for index, item := range items {
 		sem <- struct{}{}
-		go func(item UploadItem, bar *mpb.Bar) {
+		wg.Add(1)
+		go func(index int, item UploadItem) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
+			progressMu.Lock()
+			activeUploads[index] = item.DestinationName
+			progressMu.Unlock()
+
 			result := e.uploadItem(ctx, item, plan, func(progress api.UploadProgress) {
-				bar.SetCurrent(progress.BytesReceived)
+				progressMu.Lock()
+				if progress.BytesReceived > itemBytes[index] {
+					uploadedBytes += progress.BytesReceived - itemBytes[index]
+					itemBytes[index] = progress.BytesReceived
+				}
+				current := uploadedBytes
+				progressMu.Unlock()
+
+				bar.SetCurrent(current)
 			})
-			if result.Success {
-				bar.SetCurrent(item.Size)
-			} else {
+
+			progressMu.Lock()
+			if result.Success && item.Size > itemBytes[index] {
+				uploadedBytes += item.Size - itemBytes[index]
+				itemBytes[index] = item.Size
+			}
+			delete(activeUploads, index)
+			completed++
+			if !result.Success {
+				failures++
+			}
+			current := uploadedBytes
+			allComplete := completed == len(items)
+			hadFailures := failures > 0
+			progressMu.Unlock()
+
+			if allComplete && hadFailures {
 				bar.Abort(false)
+			} else if allComplete {
+				bar.SetCurrent(plan.TotalBytes)
+			} else {
+				bar.SetCurrent(current)
 			}
 
 			mu.Lock()
 			*results = append(*results, result)
 			mu.Unlock()
-		}(item, bar)
+		}(index, item)
 	}
 
 	p.Wait()
+}
+
+func aggregateProgressName(completed, total int, activeUploads map[int]string) string {
+	status := fmt.Sprintf("Uploading %d/%d files", completed, total)
+	if len(activeUploads) == 0 {
+		return status
+	}
+
+	indexes := make([]int, 0, len(activeUploads))
+	for index := range activeUploads {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+
+	status += ": " + progressName(activeUploads[indexes[0]])
+	if remaining := len(indexes) - 1; remaining > 0 {
+		status += fmt.Sprintf(" +%d", remaining)
+	}
+	return status
 }
 
 func (e *Executor) uploadItem(ctx context.Context, item UploadItem, plan *UploadPlan, onProgress api.UploadProgressFunc) UploadResult {

@@ -33,3 +33,18 @@ func TestProgressNameTruncatesLongFilenames(t *testing.T) {
 		t.Fatalf("unexpected truncated name: %q", got)
 	}
 }
+
+func TestAggregateProgressName(t *testing.T) {
+	activeUploads := map[int]string{
+		2: "third-song.mp3",
+		0: "first-song.mp3",
+		1: "second-song.mp3",
+	}
+
+	if got, want := aggregateProgressName(2, 8, activeUploads), "Uploading 2/8 files: first-song.mp3 +2"; got != want {
+		t.Fatalf("aggregateProgressName() = %q, want %q", got, want)
+	}
+	if got, want := aggregateProgressName(8, 8, nil), "Uploading 8/8 files"; got != want {
+		t.Fatalf("aggregateProgressName() = %q, want %q", got, want)
+	}
+}
