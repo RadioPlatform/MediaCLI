@@ -58,6 +58,23 @@ go install radioplatform-media-ci/cmd/media-cli@latest
 
 Published releases use `vMAJOR.MINOR.PATCH` tags, such as `v1.0.0`.
 
+### Update the CLI
+
+Use the built-in updater to install the latest stable release for your macOS or
+Linux architecture. It verifies the downloaded archive against the release
+checksum before replacing the executable.
+
+```bash
+# See whether an update is available
+media-cli update --check
+
+# Download and install the latest stable release
+media-cli update
+```
+
+If the CLI was installed in a system-owned directory such as `/usr/local/bin`,
+run the update command with the permissions required to write that directory.
+
 ## Quick start
 
 ```console

@@ -47,6 +47,7 @@ Getting started:
 	cmd.AddCommand(NewFoldersCmd())
 	cmd.AddCommand(NewMediaCmd())
 	cmd.AddCommand(NewVersionCmd())
+	cmd.AddCommand(NewUpdateCmd())
 
 	return cmd
 }
