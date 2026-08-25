@@ -128,6 +128,40 @@ func TestDiscoverDirectory(t *testing.T) {
 	}
 }
 
+func TestDiscoverSkipsUnsupportedFiles(t *testing.T) {
+	dir := setupTestFiles(t, map[string]string{
+		"01 STAY.mp3": "audio",
+		"01 STAY.lrc": "lyrics",
+		"cover.jpg":   "artwork",
+		"notes.txt":   "notes",
+		"sub/02.flac": "audio",
+	})
+
+	files, err := DiscoverFiles([]string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 supported audio files, got %d", len(files))
+	}
+	for _, file := range files {
+		if !isSupportedAudioFile(file.AbsolutePath) {
+			t.Errorf("discovered unsupported file %q", file.AbsolutePath)
+		}
+	}
+
+	files, err = DiscoverFiles([]string{
+		filepath.Join(dir, "01 STAY.lrc"),
+		filepath.Join(dir, "01 STAY.mp3"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || filepath.Base(files[0].AbsolutePath) != "01 STAY.mp3" {
+		t.Fatalf("explicit unsupported file was not skipped: %+v", files)
+	}
+}
+
 func TestDiscoverDirectoryTrailingSlash(t *testing.T) {
 	dir := setupTestFiles(t, map[string]string{
 		"track1.mp3": "audio1",

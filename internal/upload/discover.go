@@ -16,7 +16,22 @@ type DiscoveredFile struct {
 	Metadata     MediaMetadata
 }
 
-// DiscoverFiles expands arguments into a sorted, deduplicated list of regular files.
+var supportedAudioExtensions = map[string]struct{}{
+	".aac":  {},
+	".aif":  {},
+	".aiff": {},
+	".flac": {},
+	".m4a":  {},
+	".m4b":  {},
+	".mp3":  {},
+	".mp4":  {},
+	".oga":  {},
+	".ogg":  {},
+	".opus": {},
+	".wav":  {},
+}
+
+// DiscoverFiles expands arguments into a sorted, deduplicated list of supported audio files.
 // Each argument can be:
 //   - A literal file path
 //   - A literal directory path (walked recursively)
@@ -33,6 +48,9 @@ func DiscoverFiles(args []string) ([]DiscoveredFile, error) {
 		info, err := os.Stat(arg)
 		if err == nil {
 			if info.Mode().IsRegular() {
+				if !isSupportedAudioFile(arg) {
+					continue
+				}
 				abs, _ := filepath.Abs(arg)
 				if !seen[abs] {
 					seen[abs] = true
@@ -77,7 +95,7 @@ func DiscoverFiles(args []string) ([]DiscoveredFile, error) {
 			if err != nil {
 				continue
 			}
-			if info.Mode().IsRegular() {
+			if info.Mode().IsRegular() && isSupportedAudioFile(f) {
 				abs, _ := filepath.Abs(f)
 				if !seen[abs] {
 					seen[abs] = true
@@ -143,13 +161,18 @@ func makeDiscoveredFile(path string, size int64) DiscoveredFile {
 	}
 }
 
+func isSupportedAudioFile(path string) bool {
+	_, supported := supportedAudioExtensions[strings.ToLower(filepath.Ext(path))]
+	return supported
+}
+
 func walkDirectory(dir string) ([]DiscoveredFile, error) {
 	var files []DiscoveredFile
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.Mode().IsRegular() {
+		if info.Mode().IsRegular() && isSupportedAudioFile(path) {
 			abs, _ := filepath.Abs(path)
 			files = append(files, makeDiscoveredFile(abs, info.Size()))
 		}

@@ -135,11 +135,11 @@ func (e *Executor) executeWithProgress(ctx context.Context, items []UploadItem, 
 				progressMu.Lock()
 				defer progressMu.Unlock()
 				return aggregateProgressName(completed, len(items), activeUploads)
-			}),
-			decor.CountersKibiByte("% .1f / % .1f"),
+			}, decor.WC{C: decor.DextraSpace}),
+			decor.CountersKibiByte("% .1f / % .1f", decor.WC{C: decor.DextraSpace}),
 		),
 		mpb.AppendDecorators(
-			decor.OnComplete(decor.NewPercentage("%.0f%%"), " done"),
+			decor.OnComplete(decor.NewPercentage("%.0f", decor.WC{C: decor.DextraSpace}), "done"),
 			decor.Elapsed(decor.ET_STYLE_MMSS),
 		),
 	)
