@@ -93,6 +93,10 @@ type UploadResult struct {
 	Media   *MediaItem `json:"media,omitempty"`
 	Success bool       `json:"success"`
 	Error   string     `json:"error,omitempty"`
+
+	// ResumedChunks is how many chunks the server already held from an earlier
+	// attempt, so they were not sent again.
+	ResumedChunks int `json:"-"`
 }
 
 type UploadProgress struct {
@@ -112,4 +116,18 @@ type chunkUploadResponse struct {
 		UploadProgress
 		Track *MediaItem `json:"track,omitempty"`
 	} `json:"data"`
+}
+
+// UploadStatus describes what the server already holds for a chunked upload,
+// which lets an interrupted upload resume instead of starting over.
+type UploadStatus struct {
+	UploadID       string     `json:"upload_id"`
+	ReceivedChunks []int      `json:"received_chunks"`
+	BytesReceived  int64      `json:"bytes_received"`
+	Complete       bool       `json:"complete"`
+	Track          *MediaItem `json:"track,omitempty"`
+}
+
+type uploadStatusResponse struct {
+	Data UploadStatus `json:"data"`
 }

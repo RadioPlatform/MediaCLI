@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -551,120 +552,177 @@ func TestUploadMediaStreamedDoesNotRetryServerFailure(t *testing.T) {
 	}
 }
 
-func TestUploadMediaChunkedRetriesAndReportsServerProgress(t *testing.T) {
-	dir := t.TempDir()
-	filePath := filepath.Join(dir, "chunked song.mp3")
-	payload := make([]byte, mediaUploadChunkSize+137)
+// fakeChunkServer mimics the server's chunk and status endpoints, including resume.
+type fakeChunkServer struct {
+	t         *testing.T
+	payload   []byte
+	mu        sync.Mutex
+	preloaded map[int]bool
+	received  map[int]bool
+	attempts  map[int]int
+	failFirst map[int]bool
+	statusHit int
+	uploadID  string
+	fields    map[string]string
+	track     *MediaItem
+	completed bool
+}
+
+func newFakeChunkServer(t *testing.T, payload []byte) *fakeChunkServer {
+	return &fakeChunkServer{
+		t:         t,
+		payload:   payload,
+		preloaded: map[int]bool{},
+		received:  map[int]bool{},
+		attempts:  map[int]int{},
+		failFirst: map[int]bool{},
+		track:     &MediaItem{UUID: "track-uuid", OriginalFilename: "song.mp3", SizeBytes: int64(len(payload))},
+	}
+}
+
+func (f *fakeChunkServer) totalChunks() int {
+	return int((int64(len(f.payload)) + mediaUploadChunkSize - 1) / mediaUploadChunkSize)
+}
+
+func (f *fakeChunkServer) handle(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 9 || parts[4] != "stations" || parts[6] != "media" || parts[7] != "uploads" {
+		f.t.Errorf("unexpected upload path: %s", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	f.uploadID = parts[8]
+	if !regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString(f.uploadID) {
+		f.t.Errorf("upload ID is not a UUID: %q", f.uploadID)
+	}
+
+	if r.Method == http.MethodGet {
+		f.statusHit++
+		chunks := []int{}
+		for index := 0; index < f.totalChunks(); index++ {
+			if f.preloaded[index] || f.received[index] {
+				chunks = append(chunks, index)
+			}
+		}
+		data := map[string]interface{}{"upload_id": f.uploadID, "received_chunks": chunks, "bytes_received": 0, "complete": f.completed}
+		if f.completed {
+			data["track"] = f.track
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": data})
+		return
+	}
+
+	if len(parts) != 10 || parts[9] != "chunks" {
+		f.t.Errorf("unexpected chunk path: %s", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if err := r.ParseMultipartForm(6 << 20); err != nil {
+		f.t.Errorf("invalid multipart request: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	chunkIndex, err := strconv.Atoi(r.FormValue("chunk_index"))
+	if err != nil {
+		f.t.Fatalf("invalid chunk index: %v", err)
+	}
+	f.attempts[chunkIndex]++
+
+	if r.Header.Get("Idempotency-Key") != fmt.Sprintf("%s:%d", f.uploadID, chunkIndex) {
+		f.t.Errorf("unexpected idempotency key %q", r.Header.Get("Idempotency-Key"))
+	}
+	chunk, _, err := r.FormFile("chunk")
+	if err != nil {
+		f.t.Fatalf("missing chunk: %v", err)
+	}
+	chunkPayload, _ := io.ReadAll(chunk)
+	_ = chunk.Close()
+	offset := int64(chunkIndex) * mediaUploadChunkSize
+	end := min(offset+mediaUploadChunkSize, int64(len(f.payload)))
+	if !bytes.Equal(chunkPayload, f.payload[offset:end]) {
+		f.t.Errorf("chunk %d payload does not match source", chunkIndex)
+	}
+	if r.FormValue("chunk_size") != strconv.FormatInt(mediaUploadChunkSize, 10) || r.FormValue("total_chunks") != strconv.Itoa(f.totalChunks()) || r.FormValue("total_size") != strconv.Itoa(len(f.payload)) {
+		f.t.Errorf("incorrect chunk shape: %v", r.MultipartForm.Value)
+	}
+	f.fields = map[string]string{}
+	for key, values := range r.MultipartForm.Value {
+		f.fields[key] = values[0]
+	}
+
+	if f.failFirst[chunkIndex] && f.attempts[chunkIndex] == 1 {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	f.received[chunkIndex] = true
+	stored := map[int]bool{}
+	for index := range f.preloaded {
+		stored[index] = true
+	}
+	for index := range f.received {
+		stored[index] = true
+	}
+	var bytesReceived int64
+	for index := range stored {
+		bytesReceived += min(mediaUploadChunkSize, int64(len(f.payload))-int64(index)*mediaUploadChunkSize)
+	}
+	f.completed = len(stored) == f.totalChunks()
+
+	data := map[string]interface{}{
+		"upload_id":       f.uploadID,
+		"chunk_index":     chunkIndex,
+		"chunks_received": len(stored),
+		"total_chunks":    f.totalChunks(),
+		"bytes_received":  bytesReceived,
+		"total_size":      len(f.payload),
+		"complete":        f.completed,
+	}
+	status := http.StatusOK
+	if f.completed {
+		status = http.StatusCreated
+		data["track"] = f.track
+	}
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": data})
+}
+
+func writeChunkTestFile(t *testing.T, name string, size int64) (string, []byte) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	payload := make([]byte, size)
 	for index := range payload {
 		payload[index] = byte(index % 251)
 	}
-	if err := os.WriteFile(filePath, payload, 0644); err != nil {
+	if err := os.WriteFile(path, payload, 0644); err != nil {
 		t.Fatal(err)
 	}
+	return path, payload
+}
 
-	uuidPattern := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	attempts := map[int]int{}
-	idempotencyKeys := map[int]string{}
-	var uploadID string
-	srv, client := testServer(func(w http.ResponseWriter, r *http.Request) {
-		parts := strings.Split(r.URL.Path, "/")
-		if len(parts) != 10 || parts[1] != "api" || parts[4] != "stations" || parts[6] != "media" || parts[7] != "uploads" || parts[9] != "chunks" {
-			t.Errorf("unexpected upload path: %s", r.URL.Path)
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		requestUploadID := parts[8]
-		if !uuidPattern.MatchString(requestUploadID) {
-			t.Errorf("upload ID is not a UUID: %q", requestUploadID)
-		}
-		if uploadID == "" {
-			uploadID = requestUploadID
-		} else if requestUploadID != uploadID {
-			t.Errorf("upload ID changed: %q != %q", requestUploadID, uploadID)
-		}
-
-		if err := r.ParseMultipartForm(6 << 20); err != nil {
-			t.Errorf("invalid multipart request: %v", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		chunkIndex, err := strconv.Atoi(r.FormValue("chunk_index"))
-		if err != nil {
-			t.Fatalf("invalid chunk index: %v", err)
-		}
-		attempts[chunkIndex]++
-		key := r.Header.Get("Idempotency-Key")
-		if key == "" {
-			t.Error("missing idempotency key")
-		}
-		if previous := idempotencyKeys[chunkIndex]; previous != "" && previous != key {
-			t.Errorf("chunk %d idempotency key changed", chunkIndex)
-		}
-		idempotencyKeys[chunkIndex] = key
-
-		chunk, _, err := r.FormFile("chunk")
-		if err != nil {
-			t.Fatalf("missing chunk: %v", err)
-		}
-		chunkPayload, err := io.ReadAll(chunk)
-		_ = chunk.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-		offset := int64(chunkIndex) * mediaUploadChunkSize
-		end := min(offset+mediaUploadChunkSize, int64(len(payload)))
-		if !bytes.Equal(chunkPayload, payload[offset:end]) {
-			t.Errorf("chunk %d payload does not match source", chunkIndex)
-		}
-		if r.FormValue("chunk_size") != strconv.FormatInt(mediaUploadChunkSize, 10) || r.FormValue("total_chunks") != "2" || r.FormValue("total_size") != strconv.Itoa(len(payload)) {
-			t.Errorf("incorrect chunk shape: %v", r.MultipartForm.Value)
-		}
-		if r.FormValue("filename") != "chunked song.mp3" || r.FormValue("mime_type") != "audio/mpeg" || r.FormValue("folder") != "Music" || r.FormValue("is_jingle") != "true" {
-			t.Errorf("incorrect upload metadata: %v", r.MultipartForm.Value)
-		}
-
-		if chunkIndex == 0 && attempts[chunkIndex] == 1 {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		bytesReceived := min(int64(chunkIndex+1)*mediaUploadChunkSize, int64(len(payload)))
-		complete := chunkIndex == 1
-		status := http.StatusOK
-		if complete {
-			status = http.StatusCreated
-		}
-		w.WriteHeader(status)
-		response := map[string]interface{}{
-			"data": map[string]interface{}{
-				"upload_id":       uploadID,
-				"chunk_index":     chunkIndex,
-				"chunks_received": chunkIndex + 1,
-				"total_chunks":    2,
-				"bytes_received":  bytesReceived,
-				"total_size":      len(payload),
-				"complete":        complete,
-			},
-		}
-		if complete {
-			response["data"].(map[string]interface{})["track"] = MediaItem{
-				UUID:             "track-uuid",
-				OriginalFilename: "chunked song.mp3",
-				SizeBytes:        int64(len(payload)),
-				IsJingle:         true,
-			}
-		}
-		_ = json.NewEncoder(w).Encode(response)
-	})
+func TestUploadMediaChunkedSendsChunksInParallelWithRetriesAndProgress(t *testing.T) {
+	filePath, payload := writeChunkTestFile(t, "song.mp3", 3*mediaUploadChunkSize+137)
+	fake := newFakeChunkServer(t, payload)
+	fake.failFirst[0] = true
+	srv, client := testServer(fake.handle)
 	defer srv.Close()
 
-	var progress []UploadProgress
+	var (
+		progressMu sync.Mutex
+		progress   []UploadProgress
+	)
 	result, err := client.UploadMediaChunked(context.Background(), "station-uuid", UploadMediaInput{
-		FilePath: filePath,
-		Folder:   "Music",
-		IsJingle: true,
+		FilePath:   filePath,
+		Folder:     "Jingles",
+		IsJingle:   true,
+		JingleType: "sweeper",
 	}, func(update UploadProgress) {
+		progressMu.Lock()
 		progress = append(progress, update)
+		progressMu.Unlock()
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -675,11 +733,99 @@ func TestUploadMediaChunkedRetriesAndReportsServerProgress(t *testing.T) {
 	if result.Media == nil || result.Media.UUID != "track-uuid" {
 		t.Fatalf("unexpected media response: %+v", result.Media)
 	}
-	if attempts[0] != 2 || attempts[1] != 1 {
-		t.Fatalf("unexpected attempts: %+v", attempts)
+	if fake.attempts[0] != 2 || fake.attempts[1] != 1 || fake.attempts[2] != 1 || fake.attempts[3] != 1 {
+		t.Fatalf("unexpected attempts: %+v", fake.attempts)
 	}
-	if len(progress) != 2 || progress[0].BytesReceived != mediaUploadChunkSize || progress[1].BytesReceived != int64(len(payload)) || !progress[1].Complete {
-		t.Fatalf("unexpected progress: %+v", progress)
+	if fake.fields["filename"] != "song.mp3" || fake.fields["mime_type"] != "audio/mpeg" || fake.fields["folder"] != "Jingles" || fake.fields["is_jingle"] != "true" || fake.fields["jingle_type"] != "sweeper" {
+		t.Fatalf("incorrect upload metadata: %v", fake.fields)
+	}
+	last := progress[len(progress)-1]
+	if last.BytesReceived != int64(len(payload)) || !last.Complete {
+		t.Fatalf("unexpected final progress: %+v", last)
+	}
+}
+
+func TestUploadMediaChunkedResumesFromServerState(t *testing.T) {
+	filePath, payload := writeChunkTestFile(t, "song.mp3", 3*mediaUploadChunkSize+10)
+	fake := newFakeChunkServer(t, payload)
+	fake.preloaded[0] = true
+	fake.preloaded[2] = true
+	srv, client := testServer(fake.handle)
+	defer srv.Close()
+
+	var firstProgress UploadProgress
+	var seen bool
+	result, err := client.UploadMediaChunked(context.Background(), "station-uuid", UploadMediaInput{FilePath: filePath}, func(update UploadProgress) {
+		if !seen {
+			firstProgress, seen = update, true
+		}
+	})
+	if err != nil || !result.Success {
+		t.Fatalf("resumed upload failed: %v %+v", err, result)
+	}
+	if fake.attempts[0] != 0 || fake.attempts[2] != 0 || fake.attempts[1] != 1 || fake.attempts[3] != 1 {
+		t.Fatalf("only missing chunks should be sent: %+v", fake.attempts)
+	}
+	if result.ResumedChunks != 2 {
+		t.Fatalf("expected 2 resumed chunks, got %d", result.ResumedChunks)
+	}
+	if firstProgress.BytesReceived != mediaUploadChunkSize*2 {
+		t.Fatalf("resume should report already-stored bytes first: %+v", firstProgress)
+	}
+}
+
+func TestUploadMediaChunkedResendsLastChunkWhenCompletionWasLost(t *testing.T) {
+	filePath, payload := writeChunkTestFile(t, "song.mp3", 2*mediaUploadChunkSize)
+	fake := newFakeChunkServer(t, payload)
+	fake.preloaded[0] = true
+	fake.preloaded[1] = true
+	srv, client := testServer(fake.handle)
+	defer srv.Close()
+
+	result, err := client.UploadMediaChunked(context.Background(), "station-uuid", UploadMediaInput{FilePath: filePath}, nil)
+	if err != nil || !result.Success {
+		t.Fatalf("upload failed: %v %+v", err, result)
+	}
+	if fake.attempts[1] != 1 || fake.attempts[0] != 0 {
+		t.Fatalf("expected only the last chunk to be resent: %+v", fake.attempts)
+	}
+}
+
+func TestUploadMediaChunkedReturnsExistingTrackWhenAlreadyComplete(t *testing.T) {
+	filePath, payload := writeChunkTestFile(t, "song.mp3", mediaUploadChunkSize+1)
+	fake := newFakeChunkServer(t, payload)
+	fake.completed = true
+	srv, client := testServer(fake.handle)
+	defer srv.Close()
+
+	result, err := client.UploadMediaChunked(context.Background(), "station-uuid", UploadMediaInput{FilePath: filePath}, nil)
+	if err != nil || !result.Success || result.Media == nil || result.Media.UUID != "track-uuid" {
+		t.Fatalf("unexpected result: %v %+v", err, result)
+	}
+	if len(fake.attempts) != 0 {
+		t.Fatalf("no chunks should be sent for a completed upload: %+v", fake.attempts)
+	}
+}
+
+func TestResumableUploadIDIsStableAndSensitiveToDestination(t *testing.T) {
+	filePath, _ := writeChunkTestFile(t, "song.mp3", 10)
+	info, err := os.Stat(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := UploadMediaInput{FilePath: filePath, Folder: "Music"}
+	first := resumableUploadID("station", base, info)
+	if first != resumableUploadID("station", base, info) {
+		t.Fatal("upload ID should be stable")
+	}
+	for name, other := range map[string]string{
+		"station": resumableUploadID("other", base, info),
+		"folder":  resumableUploadID("station", UploadMediaInput{FilePath: filePath, Folder: "Jingles"}, info),
+		"jingle":  resumableUploadID("station", UploadMediaInput{FilePath: filePath, Folder: "Music", IsJingle: true}, info),
+	} {
+		if other == first {
+			t.Errorf("upload ID should change with %s", name)
+		}
 	}
 }
 

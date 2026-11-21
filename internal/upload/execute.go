@@ -19,6 +19,9 @@ type UploadResult struct {
 	Success bool
 	Error   string
 	Media   *api.MediaItem
+
+	// ResumedChunks counts chunks the server already held from an earlier attempt.
+	ResumedChunks int
 }
 
 type UploadSummary struct {
@@ -220,9 +223,10 @@ func aggregateProgressName(completed, total int, activeUploads map[int]string) s
 
 func (e *Executor) uploadItem(ctx context.Context, item UploadItem, plan *UploadPlan, onProgress api.UploadProgressFunc) UploadResult {
 	input := api.UploadMediaInput{
-		FilePath: item.LocalPath,
-		Folder:   item.DestinationFolder,
-		IsJingle: item.IsJingle,
+		FilePath:   item.LocalPath,
+		Folder:     item.DestinationFolder,
+		IsJingle:   item.IsJingle,
+		JingleType: plan.JingleType,
 	}
 
 	result, err := e.client.UploadMediaChunked(ctx, plan.StationUUID, input, onProgress)
@@ -236,16 +240,18 @@ func (e *Executor) uploadItem(ctx context.Context, item UploadItem, plan *Upload
 
 	if !result.Success {
 		return UploadResult{
-			Item:    item,
-			Success: false,
-			Error:   result.Error,
+			Item:          item,
+			Success:       false,
+			Error:         result.Error,
+			ResumedChunks: result.ResumedChunks,
 		}
 	}
 
 	return UploadResult{
-		Item:    item,
-		Success: true,
-		Media:   result.Media,
+		Item:          item,
+		Success:       true,
+		Media:         result.Media,
+		ResumedChunks: result.ResumedChunks,
 	}
 }
 

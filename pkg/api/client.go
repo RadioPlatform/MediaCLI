@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -16,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -24,8 +27,9 @@ import (
 const defaultRequestTimeout = 30 * time.Minute
 
 const (
-	mediaUploadChunkSize = int64(5 * 1024 * 1024)
-	maximumUploadChunks  = 2048
+	mediaUploadChunkSize        = int64(5 * 1024 * 1024)
+	maximumUploadChunks         = 2048
+	mediaUploadChunkConcurrency = 3
 )
 
 type Client struct {
@@ -439,9 +443,10 @@ func (c *Client) ListMedia(ctx context.Context, stationUUID string, params Media
 }
 
 type UploadMediaInput struct {
-	FilePath string
-	Folder   string
-	IsJingle bool
+	FilePath   string
+	Folder     string
+	IsJingle   bool
+	JingleType string
 }
 
 func (c *Client) UploadMedia(ctx context.Context, stationUUID string, input UploadMediaInput) (*UploadResult, error) {
@@ -578,8 +583,26 @@ func (c *Client) UploadMediaStreamed(ctx context.Context, stationUUID string, in
 	}, nil
 }
 
-// UploadMediaChunked uploads a file in independently retryable chunks and
-// reports server-confirmed byte progress after every accepted chunk.
+// UploadStatus reports which chunks the server already holds for an upload.
+func (c *Client) UploadStatus(ctx context.Context, stationUUID, uploadID string) (*UploadStatus, error) {
+	path := fmt.Sprintf("/api/v1/cli/stations/%s/media/uploads/%s", stationUUID, uploadID)
+	resp, err := c.doRequestWithRetryFactory(ctx, http.MethodGet, path, nil, "", nil, false)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var response uploadStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, NewAPIError(ErrInvalidResponse, resp.StatusCode, "failed to decode upload status", err)
+	}
+	return &response.Data, nil
+}
+
+// UploadMediaChunked uploads a file in independently retryable chunks, sent in
+// parallel. The upload ID is derived from the file and destination, so running
+// the same upload again resumes from the chunks the server already holds.
+// Progress is reported as server-confirmed bytes after every accepted chunk.
 func (c *Client) UploadMediaChunked(ctx context.Context, stationUUID string, input UploadMediaInput, onProgress UploadProgressFunc) (*UploadResult, error) {
 	info, err := os.Stat(input.FilePath)
 	if err != nil {
@@ -589,59 +612,197 @@ func (c *Client) UploadMediaChunked(ctx context.Context, stationUUID string, inp
 		return uploadFailure("The local file is empty or is not a regular file."), nil
 	}
 
-	totalChunks := int((info.Size() + mediaUploadChunkSize - 1) / mediaUploadChunkSize)
+	totalSize := info.Size()
+	totalChunks := int((totalSize + mediaUploadChunkSize - 1) / mediaUploadChunkSize)
 	if totalChunks > maximumUploadChunks {
 		return uploadFailure(fmt.Sprintf("The file requires %d chunks; the server accepts at most %d.", totalChunks, maximumUploadChunks)), nil
 	}
 
-	uploadID, err := newUploadID()
-	if err != nil {
-		return nil, NewAPIError(ErrUploadFailed, 0, "failed to create upload ID", err)
-	}
+	uploadID := resumableUploadID(stationUUID, input, info)
 	mimeType := detectMediaType(input.FilePath)
+	chunkLength := func(index int) int64 {
+		return min(mediaUploadChunkSize, totalSize-int64(index)*mediaUploadChunkSize)
+	}
 
-	for chunkIndex := 0; chunkIndex < totalChunks; chunkIndex++ {
-		offset := int64(chunkIndex) * mediaUploadChunkSize
-		length := min(mediaUploadChunkSize, info.Size()-offset)
-		prototype := multipart.NewWriter(io.Discard)
-		boundary := prototype.Boundary()
-		contentType := prototype.FormDataContentType()
-		_ = prototype.Close()
-
-		bodyFactory := func() (io.Reader, error) {
-			return newChunkUploadBody(input, chunkIndex, totalChunks, info.Size(), offset, length, mimeType, boundary)
-		}
-		headers := make(http.Header)
-		headers.Set("Idempotency-Key", fmt.Sprintf("%s:%d", uploadID, chunkIndex))
-		path := fmt.Sprintf("/api/v1/cli/stations/%s/media/uploads/%s/chunks", stationUUID, uploadID)
-
-		resp, err := c.doRequestWithRetryFactory(ctx, http.MethodPost, path, bodyFactory, contentType, headers, true)
-		if err != nil {
-			return uploadFailure(friendlyUploadError(err)), nil
-		}
-
-		var response chunkUploadResponse
-		decodeErr := json.NewDecoder(resp.Body).Decode(&response)
-		resp.Body.Close()
-		if decodeErr != nil {
-			return uploadFailure(fmt.Sprintf("Failed to decode chunk response: %s", decodeErr)), nil
-		}
-		if response.Data.UploadID != uploadID || response.Data.ChunkIndex != chunkIndex || response.Data.TotalBytes != info.Size() || response.Data.TotalChunks != totalChunks || response.Data.BytesReceived < 0 || response.Data.BytesReceived > info.Size() {
-			return uploadFailure("The server returned inconsistent upload progress."), nil
-		}
-		if onProgress != nil {
-			onProgress(response.Data.UploadProgress)
-		}
-
-		if response.Data.Complete {
-			if response.Data.Track == nil {
-				return uploadFailure("The server completed the upload without returning the media item."), nil
+	received := make(map[int]bool)
+	if status, statusErr := c.UploadStatus(ctx, stationUUID, uploadID); statusErr == nil {
+		if status.Complete && status.Track != nil {
+			if onProgress != nil {
+				onProgress(UploadProgress{UploadID: uploadID, ChunksReceived: totalChunks, TotalChunks: totalChunks, BytesReceived: totalSize, TotalBytes: totalSize, Complete: true})
 			}
-			return &UploadResult{Success: true, Media: response.Data.Track}, nil
+			return &UploadResult{Success: true, Media: status.Track, ResumedChunks: totalChunks}, nil
+		}
+		for _, index := range status.ReceivedChunks {
+			if index >= 0 && index < totalChunks {
+				received[index] = true
+			}
+		}
+	} else if ctx.Err() != nil {
+		return uploadFailure(friendlyUploadError(statusErr)), nil
+	}
+
+	var confirmedBytes int64
+	pending := make([]int, 0, totalChunks)
+	for index := 0; index < totalChunks; index++ {
+		if received[index] {
+			confirmedBytes += chunkLength(index)
+			continue
+		}
+		pending = append(pending, index)
+	}
+	// Every chunk is already stored but completion was lost: resend the last one to finish the upload.
+	if len(pending) == 0 {
+		pending = append(pending, totalChunks-1)
+	}
+
+	var (
+		mu            sync.Mutex
+		cursor        int
+		firstErr      error
+		completeTrack *MediaItem
+		wg            sync.WaitGroup
+	)
+	chunksReceived := len(received)
+	resumedChunks := len(received)
+
+	reportProgress := func(complete bool) {
+		if onProgress != nil {
+			onProgress(UploadProgress{
+				UploadID:       uploadID,
+				ChunksReceived: chunksReceived,
+				TotalChunks:    totalChunks,
+				BytesReceived:  confirmedBytes,
+				TotalBytes:     totalSize,
+				Complete:       complete,
+			})
+		}
+	}
+	if confirmedBytes > 0 {
+		reportProgress(false)
+	}
+
+	workerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	worker := func() {
+		defer wg.Done()
+		for {
+			mu.Lock()
+			if firstErr != nil || cursor >= len(pending) {
+				mu.Unlock()
+				return
+			}
+			chunkIndex := pending[cursor]
+			cursor++
+			mu.Unlock()
+
+			response, err := c.sendChunk(workerCtx, stationUUID, uploadID, input, chunkIndex, totalChunks, totalSize, mimeType)
+
+			mu.Lock()
+			if err != nil {
+				if firstErr == nil {
+					firstErr = err
+					cancel()
+				}
+				mu.Unlock()
+				return
+			}
+			if !received[chunkIndex] {
+				received[chunkIndex] = true
+				chunksReceived++
+				confirmedBytes += chunkLength(chunkIndex)
+			}
+			if response.Data.Complete && response.Data.Track != nil {
+				completeTrack = response.Data.Track
+			}
+			reportProgress(false)
+			mu.Unlock()
 		}
 	}
 
-	return uploadFailure("The server accepted every chunk but did not complete the upload."), nil
+	workers := min(mediaUploadChunkConcurrency, len(pending))
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go worker()
+	}
+	wg.Wait()
+
+	if firstErr != nil {
+		failure := uploadFailure(firstErr.Error())
+		failure.ResumedChunks = resumedChunks
+		return failure, nil
+	}
+
+	if completeTrack == nil {
+		// The completing response can be lost or arrive before the last chunk lands; ask the server.
+		status, err := c.UploadStatus(ctx, stationUUID, uploadID)
+		if err != nil || !status.Complete || status.Track == nil {
+			return uploadFailure("The server received the file but did not finish processing it."), nil
+		}
+		completeTrack = status.Track
+	}
+
+	reportProgress(true)
+	return &UploadResult{Success: true, Media: completeTrack, ResumedChunks: resumedChunks}, nil
+}
+
+// sendChunk uploads one chunk, retrying transient failures, and validates the server's acknowledgement.
+func (c *Client) sendChunk(ctx context.Context, stationUUID, uploadID string, input UploadMediaInput, chunkIndex, totalChunks int, totalSize int64, mimeType string) (*chunkUploadResponse, error) {
+	offset := int64(chunkIndex) * mediaUploadChunkSize
+	length := min(mediaUploadChunkSize, totalSize-offset)
+	prototype := multipart.NewWriter(io.Discard)
+	boundary := prototype.Boundary()
+	contentType := prototype.FormDataContentType()
+	_ = prototype.Close()
+
+	bodyFactory := func() (io.Reader, error) {
+		return newChunkUploadBody(input, chunkIndex, totalChunks, totalSize, offset, length, mimeType, boundary)
+	}
+	headers := make(http.Header)
+	headers.Set("Idempotency-Key", fmt.Sprintf("%s:%d", uploadID, chunkIndex))
+	path := fmt.Sprintf("/api/v1/cli/stations/%s/media/uploads/%s/chunks", stationUUID, uploadID)
+
+	resp, err := c.doRequestWithRetryFactory(ctx, http.MethodPost, path, bodyFactory, contentType, headers, true)
+	if err != nil {
+		return nil, errors.New(friendlyUploadError(err))
+	}
+
+	var response chunkUploadResponse
+	decodeErr := json.NewDecoder(resp.Body).Decode(&response)
+	resp.Body.Close()
+	if decodeErr != nil {
+		return nil, errors.New("Failed to decode chunk response: " + decodeErr.Error())
+	}
+	data := response.Data
+	if data.UploadID != uploadID || data.ChunkIndex != chunkIndex || data.TotalBytes != totalSize || data.TotalChunks != totalChunks || data.BytesReceived < 0 || data.BytesReceived > totalSize {
+		return nil, errors.New("The server returned inconsistent upload progress.")
+	}
+	return &response, nil
+}
+
+// resumableUploadID derives a stable UUID from everything that identifies an
+// upload, so an interrupted upload of the same file can be resumed while a
+// changed file, destination or chunk size starts a new one.
+func resumableUploadID(stationUUID string, input UploadMediaInput, info os.FileInfo) string {
+	absolutePath, err := filepath.Abs(input.FilePath)
+	if err != nil {
+		absolutePath = input.FilePath
+	}
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		stationUUID,
+		absolutePath,
+		strconv.FormatInt(info.Size(), 10),
+		strconv.FormatInt(info.ModTime().UnixNano(), 10),
+		strconv.FormatInt(mediaUploadChunkSize, 10),
+		input.Folder,
+		strconv.FormatBool(input.IsJingle),
+		input.JingleType,
+	}, "\x00")))
+	value := sum[:16]
+	value[6] = (value[6] & 0x0f) | 0x50
+	value[8] = (value[8] & 0x3f) | 0x80
+	hexValue := hex.EncodeToString(value)
+	return fmt.Sprintf("%s-%s-%s-%s-%s", hexValue[0:8], hexValue[8:12], hexValue[12:16], hexValue[16:20], hexValue[20:32])
 }
 
 func newChunkUploadBody(input UploadMediaInput, chunkIndex, totalChunks int, totalSize, offset, length int64, mimeType, boundary string) (io.Reader, error) {
@@ -685,6 +846,9 @@ func newChunkUploadBody(input UploadMediaInput, chunkIndex, totalChunks int, tot
 		}
 		if err == nil && input.IsJingle {
 			err = writer.WriteField("is_jingle", "true")
+		}
+		if err == nil && input.IsJingle && input.JingleType != "" {
+			err = writer.WriteField("jingle_type", input.JingleType)
 		}
 		if err == nil {
 			err = writer.Close()
@@ -763,15 +927,4 @@ func newIdempotencyKey() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(value), nil
-}
-
-func newUploadID() (string, error) {
-	value := make([]byte, 16)
-	if _, err := rand.Read(value); err != nil {
-		return "", err
-	}
-	value[6] = (value[6] & 0x0f) | 0x40
-	value[8] = (value[8] & 0x3f) | 0x80
-	hexValue := hex.EncodeToString(value)
-	return fmt.Sprintf("%s-%s-%s-%s-%s", hexValue[0:8], hexValue[8:12], hexValue[12:16], hexValue[16:20], hexValue[20:32]), nil
 }

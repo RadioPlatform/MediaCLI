@@ -19,6 +19,7 @@ func NewMediaUploadCmd() *cobra.Command {
 		stationFlag     string
 		folder          string
 		jingle          bool
+		jingleType      string
 		concurrency     int
 		createFolders   bool
 		allowCollisions bool
@@ -70,14 +71,15 @@ Non-interactive batch upload:
     --json`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMediaUpload(cmd, args, stationFlag, folder, jingle, concurrency, createFolders, allowCollisions, yes)
+			return runMediaUpload(cmd, args, stationFlag, folder, jingle, jingleType, concurrency, createFolders, allowCollisions, yes)
 		},
 	}
 
 	cmd.Flags().StringVar(&stationFlag, "station", "", "Station UUID or name")
 	cmd.Flags().StringVar(&folder, "folder", "", "Destination folder name")
 	cmd.Flags().BoolVar(&jingle, "jingle", false, "Mark all uploaded files as jingles")
-	cmd.Flags().IntVar(&concurrency, "concurrency", 3, "Upload concurrency (1-20)")
+	cmd.Flags().StringVar(&jingleType, "jingle-type", "", "Jingle type (implies --jingle): station_id, sweeper or link")
+	cmd.Flags().IntVar(&concurrency, "concurrency", 3, "Files to upload at once (1-20); each file also sends 3 chunks in parallel")
 	cmd.Flags().BoolVar(&createFolders, "create-folders", false, "Create missing folders automatically")
 	cmd.Flags().BoolVar(&allowCollisions, "allow-name-collisions", false, "Allow destination filename collisions")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Skip confirmation prompts")
@@ -91,12 +93,20 @@ func runMediaUpload(
 	stationFlag string,
 	folder string,
 	jingle bool,
+	jingleType string,
 	concurrency int,
 	createFolders bool,
 	allowCollisions bool,
 	yes bool,
 ) error {
 	out := output.New(jsonFlag, noColorFlag, debugFlag)
+
+	if jingleType != "" {
+		if !validJingleType(jingleType) {
+			return fmt.Errorf("invalid --jingle-type %q: use station_id, sweeper or link", jingleType)
+		}
+		jingle = true
+	}
 
 	if concurrency < 1 {
 		concurrency = 1
@@ -145,6 +155,7 @@ func runMediaUpload(
 		StationUUID:    station.UUID,
 		StationName:    station.Name,
 		GlobalJingle:   jingle,
+		JingleType:     jingleType,
 		ExplicitFolder: folder,
 	}
 
@@ -343,6 +354,9 @@ func runMediaUpload(
 				"jingle":             r.Item.IsJingle,
 				"success":            r.Success,
 			}
+			if r.ResumedChunks > 0 {
+				res["resumed_chunks"] = r.ResumedChunks
+			}
 			if r.Item.Metadata.HasValues() {
 				res["metadata"] = r.Item.Metadata
 			}
@@ -383,6 +397,9 @@ func runMediaUpload(
 			out.PrintError(fmt.Sprintf("%d failed", summary.FailedCount))
 		}
 		out.PrintKV("Uploaded", output.FormatBytes(summary.UploadedBytes))
+		if resumed := countResumed(summary.Items); resumed > 0 {
+			out.PrintInfo(fmt.Sprintf("%d file(s) resumed from chunks the server already had", resumed))
+		}
 		out.Println()
 
 		if summary.FailedCount > 0 {
@@ -394,6 +411,7 @@ func runMediaUpload(
 					out.Println()
 				}
 			}
+			out.PrintInfo("Run the same command again to resume; chunks already uploaded are not sent twice.")
 		}
 	}
 
@@ -502,4 +520,22 @@ func formatTrack(metadata upload.MediaMetadata) string {
 		return fmt.Sprintf("%d/%d", metadata.Track, metadata.TrackTotal)
 	}
 	return strconv.Itoa(metadata.Track)
+}
+
+func validJingleType(value string) bool {
+	switch value {
+	case "station_id", "sweeper", "link":
+		return true
+	}
+	return false
+}
+
+func countResumed(results []upload.UploadResult) int {
+	count := 0
+	for _, r := range results {
+		if r.ResumedChunks > 0 {
+			count++
+		}
+	}
+	return count
 }

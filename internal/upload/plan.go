@@ -24,6 +24,7 @@ type UploadPlan struct {
 	Items          []UploadItem
 	TotalBytes     int64
 	GlobalJingle   bool
+	JingleType     string
 	ExplicitFolder string
 }
 
@@ -31,6 +32,7 @@ type PlanOptions struct {
 	StationUUID    string
 	StationName    string
 	GlobalJingle   bool
+	JingleType     string
 	ExplicitFolder string
 }
 
@@ -55,6 +57,7 @@ func BuildPlan(discoveredFiles []DiscoveredFile, args []string, opts PlanOptions
 		StationUUID:    opts.StationUUID,
 		StationName:    opts.StationName,
 		GlobalJingle:   opts.GlobalJingle,
+		JingleType:     opts.JingleType,
 		ExplicitFolder: opts.ExplicitFolder,
 	}
 

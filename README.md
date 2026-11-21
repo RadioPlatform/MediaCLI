@@ -9,7 +9,7 @@ A command-line tool for managing your RadioPlatform station media library — up
 - **Folder management** — create and list remote folders
 - **Batch operations** — non-interactive uploads with JSON output
 - **Metadata parsing** — reads ID3v1/ID3v2, MP4, FLAC, and OGG tags
-- **Chunked uploads** — retryable 5 MiB chunks with server-confirmed byte progress
+- **Chunked uploads** — retryable 5 MiB chunks sent in parallel, resumable after an interruption, with server-confirmed byte progress
 - **Interactive login** — guided setup with station selection
 
 ## Installation
@@ -122,7 +122,7 @@ media-cli folders create "Jingles" --station 2f71a6cb
 
 ### Upload media
 
-Files are sent through the chunk-upload API in retryable 5 MiB parts. Interactive terminals display one overall server-confirmed byte progress bar with the active file name; JSON mode emits only the final result document. Non-audio sidecar files such as `.lrc`, artwork, and text files are skipped automatically.
+Files are sent through the chunk-upload API in retryable 5 MiB parts, three at a time per file. If an upload is interrupted, run the same command again: the CLI resumes from the chunks the server already holds (for up to 24 hours) unless the file changed. Interactive terminals display one overall server-confirmed byte progress bar with the active file name; JSON mode emits only the final result document. Non-audio sidecar files such as `.lrc`, artwork, and text files are skipped automatically.
 
 ```bash
 # Single file
@@ -145,6 +145,9 @@ media-cli media upload ./Music ./Jingles --create-folders --yes
 
 # Upload as jingles
 media-cli media upload ./Jingles --jingle
+
+# Upload as a specific jingle type (station_id, sweeper or link; implies --jingle)
+media-cli media upload ./Jingles --jingle-type sweeper
 
 # Non-interactive batch with JSON output
 media-cli media upload ./Music \
