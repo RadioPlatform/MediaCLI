@@ -97,6 +97,10 @@ type UploadResult struct {
 	// ResumedChunks is how many chunks the server already held from an earlier
 	// attempt, so they were not sent again.
 	ResumedChunks int `json:"-"`
+
+	// AlreadyUploaded is set when the server had already finished this exact
+	// upload, so nothing was sent.
+	AlreadyUploaded bool `json:"-"`
 }
 
 type UploadProgress struct {

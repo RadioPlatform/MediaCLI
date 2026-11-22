@@ -23,6 +23,9 @@ type UploadResult struct {
 
 	// ResumedChunks counts chunks the server already held from an earlier attempt.
 	ResumedChunks int
+
+	// AlreadyUploaded means the server had already finished this upload.
+	AlreadyUploaded bool
 }
 
 type UploadSummary struct {
@@ -253,10 +256,11 @@ func (e *Executor) uploadItem(ctx context.Context, item UploadItem, plan *Upload
 	}
 
 	return UploadResult{
-		Item:          item,
-		Success:       true,
-		Media:         result.Media,
-		ResumedChunks: result.ResumedChunks,
+		Item:            item,
+		Success:         true,
+		Media:           result.Media,
+		ResumedChunks:   result.ResumedChunks,
+		AlreadyUploaded: result.AlreadyUploaded,
 	}
 }
 

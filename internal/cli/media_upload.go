@@ -322,7 +322,6 @@ func runMediaUpload(
 			out.PrintInfo(fmt.Sprintf("Uploading %s", plan.Items[0].DestinationName))
 			out.Println()
 			out.PrintKV("Station", station.Name)
-			out.PrintKV("UUID", station.UUID)
 			out.PrintKV("Folder", destFolder)
 			printItemMetadata(out, plan.Items[0])
 			out.Println()
@@ -353,6 +352,9 @@ func runMediaUpload(
 				"size":               r.Item.Size,
 				"jingle":             r.Item.IsJingle,
 				"success":            r.Success,
+			}
+			if r.AlreadyUploaded {
+				res["already_uploaded"] = true
 			}
 			if r.ResumedChunks > 0 {
 				res["resumed_chunks"] = r.ResumedChunks
@@ -386,11 +388,15 @@ func runMediaUpload(
 		}
 		out.PrintJSON(jsonResult)
 	} else {
-		if summary.SuccessCount > 0 {
+		skipped, skippedBytes := countAlreadyUploaded(summary.Items)
+		if sent := summary.SuccessCount - skipped; sent > 0 {
 			out.PrintOK(fmt.Sprintf("✔ %s uploaded to %s (%s)",
-				output.Pluralize(summary.SuccessCount, "file", "files"),
+				output.Pluralize(sent, "file", "files"),
 				summary.StationName,
-				output.FormatBytes(summary.UploadedBytes)))
+				output.FormatBytes(summary.UploadedBytes-skippedBytes)))
+		}
+		if skipped > 0 {
+			out.PrintInfo(fmt.Sprintf("↷ %s skipped, already on %s", output.Pluralize(skipped, "file", "files"), summary.StationName))
 		}
 		if summary.FailedCount > 0 {
 			out.PrintError(fmt.Sprintf("✖ %d failed", summary.FailedCount))
@@ -536,4 +542,18 @@ func countResumed(results []upload.UploadResult) int {
 		}
 	}
 	return count
+}
+
+func countAlreadyUploaded(results []upload.UploadResult) (int, int64) {
+	var (
+		count int
+		bytes int64
+	)
+	for _, r := range results {
+		if r.Success && r.AlreadyUploaded {
+			count++
+			bytes += r.Item.Size
+		}
+	}
+	return count, bytes
 }

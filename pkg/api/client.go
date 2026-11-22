@@ -630,7 +630,7 @@ func (c *Client) UploadMediaChunked(ctx context.Context, stationUUID string, inp
 			if onProgress != nil {
 				onProgress(UploadProgress{UploadID: uploadID, ChunksReceived: totalChunks, TotalChunks: totalChunks, BytesReceived: totalSize, TotalBytes: totalSize, Complete: true})
 			}
-			return &UploadResult{Success: true, Media: status.Track, ResumedChunks: totalChunks}, nil
+			return &UploadResult{Success: true, Media: status.Track, AlreadyUploaded: true}, nil
 		}
 		for _, index := range status.ReceivedChunks {
 			if index >= 0 && index < totalChunks {

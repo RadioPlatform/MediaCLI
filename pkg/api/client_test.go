@@ -802,6 +802,9 @@ func TestUploadMediaChunkedReturnsExistingTrackWhenAlreadyComplete(t *testing.T)
 	if err != nil || !result.Success || result.Media == nil || result.Media.UUID != "track-uuid" {
 		t.Fatalf("unexpected result: %v %+v", err, result)
 	}
+	if !result.AlreadyUploaded || result.ResumedChunks != 0 {
+		t.Fatalf("expected an already-uploaded result: %+v", result)
+	}
 	if len(fake.attempts) != 0 {
 		t.Fatalf("no chunks should be sent for a completed upload: %+v", fake.attempts)
 	}
