@@ -29,7 +29,7 @@ func TestProgressNameTruncatesLongFilenames(t *testing.T) {
 	}
 	long := "very-long-radio-track-filename-for-upload.mp3"
 	got := progressName(long)
-	if len([]rune(got)) != 28 || got[len(got)-3:] != "…" {
+	if len([]rune(got)) != 32 || got[len(got)-3:] != "…" {
 		t.Fatalf("unexpected truncated name: %q", got)
 	}
 }
@@ -41,10 +41,10 @@ func TestAggregateProgressName(t *testing.T) {
 		1: "second-song.mp3",
 	}
 
-	if got, want := aggregateProgressName(2, 8, activeUploads), "Uploading 2/8 files: first-song.mp3 +2"; got != want {
+	if got, want := aggregateProgressName(2, 8, activeUploads), "Uploading 2/8  first-song.mp3 +2"; got != want {
 		t.Fatalf("aggregateProgressName() = %q, want %q", got, want)
 	}
-	if got, want := aggregateProgressName(8, 8, nil), "Uploading 8/8 files"; got != want {
+	if got, want := aggregateProgressName(8, 8, nil), "Uploading 8/8"; got != want {
 		t.Fatalf("aggregateProgressName() = %q, want %q", got, want)
 	}
 }

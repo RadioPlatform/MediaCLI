@@ -386,19 +386,17 @@ func runMediaUpload(
 		}
 		out.PrintJSON(jsonResult)
 	} else {
-		out.PrintTitle("Upload complete")
-		out.Println()
-		out.PrintKV("Station", summary.StationName)
-		out.PrintKV("UUID", summary.StationUUID)
-		out.Println()
-		out.PrintInfo(fmt.Sprintf("%d files processed", len(summary.Items)))
-		out.PrintOK(fmt.Sprintf("%d succeeded", summary.SuccessCount))
-		if summary.FailedCount > 0 {
-			out.PrintError(fmt.Sprintf("%d failed", summary.FailedCount))
+		if summary.SuccessCount > 0 {
+			out.PrintOK(fmt.Sprintf("✔ %s uploaded to %s (%s)",
+				output.Pluralize(summary.SuccessCount, "file", "files"),
+				summary.StationName,
+				output.FormatBytes(summary.UploadedBytes)))
 		}
-		out.PrintKV("Uploaded", output.FormatBytes(summary.UploadedBytes))
+		if summary.FailedCount > 0 {
+			out.PrintError(fmt.Sprintf("✖ %d failed", summary.FailedCount))
+		}
 		if resumed := countResumed(summary.Items); resumed > 0 {
-			out.PrintInfo(fmt.Sprintf("%d file(s) resumed from chunks the server already had", resumed))
+			out.PrintInfo(fmt.Sprintf("  %s resumed from chunks the server already had", output.Pluralize(resumed, "file", "files")))
 		}
 		out.Println()
 

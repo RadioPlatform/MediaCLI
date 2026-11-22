@@ -11,6 +11,7 @@ import (
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
 
+	"radioplatform-media-ci/internal/output"
 	"radioplatform-media-ci/pkg/api"
 )
 
@@ -129,21 +130,24 @@ func (e *Executor) executeWithProgress(ctx context.Context, items []UploadItem, 
 
 	p := mpb.New(
 		mpb.WithWaitGroup(wg),
-		mpb.WithWidth(90),
-		mpb.WithRefreshRate(500*time.Millisecond),
+		mpb.WithWidth(36),
+		mpb.WithRefreshRate(250*time.Millisecond),
 	)
-	bar := p.AddBar(plan.TotalBytes,
+	bar := p.New(plan.TotalBytes,
+		mpb.BarStyle().Lbound("▕").Filler("█").Tip("█").Padding("░").Rbound("▏"),
 		mpb.PrependDecorators(
 			decor.Any(func(decor.Statistics) string {
 				progressMu.Lock()
 				defer progressMu.Unlock()
 				return aggregateProgressName(completed, len(items), activeUploads)
-			}, decor.WC{C: decor.DextraSpace}),
-			decor.CountersKibiByte("% .1f / % .1f", decor.WC{C: decor.DextraSpace}),
+			}, decor.WC{C: decor.DindentRight}),
 		),
 		mpb.AppendDecorators(
-			decor.OnComplete(decor.NewPercentage("%.0f", decor.WC{C: decor.DextraSpace}), "done"),
-			decor.Elapsed(decor.ET_STYLE_MMSS),
+			decor.Any(func(s decor.Statistics) string {
+				return fmt.Sprintf("%s / %s", output.FormatBytes(s.Current), output.FormatBytes(s.Total))
+			}, decor.WC{W: 18, C: decor.DextraSpace}),
+			decor.NewPercentage("%d", decor.WC{W: 5, C: decor.DextraSpace}),
+			decor.Elapsed(decor.ET_STYLE_MMSS, decor.WC{W: 6, C: decor.DextraSpace}),
 		),
 	)
 
@@ -200,10 +204,11 @@ func (e *Executor) executeWithProgress(ctx context.Context, items []UploadItem, 
 	}
 
 	p.Wait()
+	fmt.Println()
 }
 
 func aggregateProgressName(completed, total int, activeUploads map[int]string) string {
-	status := fmt.Sprintf("Uploading %d/%d files", completed, total)
+	status := fmt.Sprintf("Uploading %d/%d", completed, total)
 	if len(activeUploads) == 0 {
 		return status
 	}
@@ -214,7 +219,7 @@ func aggregateProgressName(completed, total int, activeUploads map[int]string) s
 	}
 	sort.Ints(indexes)
 
-	status += ": " + progressName(activeUploads[indexes[0]])
+	status += "  " + progressName(activeUploads[indexes[0]])
 	if remaining := len(indexes) - 1; remaining > 0 {
 		status += fmt.Sprintf(" +%d", remaining)
 	}
@@ -256,7 +261,7 @@ func (e *Executor) uploadItem(ctx context.Context, item UploadItem, plan *Upload
 }
 
 func progressName(filename string) string {
-	const maximumRunes = 28
+	const maximumRunes = 32
 	runes := []rune(filename)
 	if len(runes) <= maximumRunes {
 		return filename
